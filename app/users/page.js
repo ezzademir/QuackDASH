@@ -228,7 +228,7 @@ export default function UsersPage() {
                       type="text"
                       value={form.full_name}
                       onChange={e => setForm({ ...form, full_name: e.target.value })}
-                      placeholder="e.g. Ahmad Farid"
+                      placeholder="e.g. YOB"
                       className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
                     />
                   </div>
