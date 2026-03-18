@@ -45,39 +45,35 @@ export default function UsersPage() {
     setLoading(false)
   }
 
-  async function inviteUser() {
-    if (!form.email.trim()) return alert('Email is required')
-    if (!form.full_name.trim()) return alert('Name is required')
-    setSaving(true)
-    setInviteSent(false)
+ async function inviteUser() {
+  if (!form.email.trim()) return alert('Email is required')
+  if (!form.full_name.trim()) return alert('Name is required')
+  setSaving(true)
 
-    // Invite user via Supabase Auth
-    const { data, error } = await supabase.auth.admin.inviteUserByEmail(form.email, {
-      redirectTo: `https://quack-dash.vercel.app/set-password`,
-      data: { full_name: form.full_name }
+  const res = await fetch('/api/invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: form.email,
+      full_name: form.full_name,
+      role: form.role,
+      location_id: form.location_id || null,
     })
+  })
 
-    if (error) {
-      alert(error.message)
-      setSaving(false)
-      return
-    }
+  const result = await res.json()
 
-    // Update their profile with role and location
-    if (data?.user?.id) {
-      await supabase.from('user_profiles').upsert({
-        id: data.user.id,
-        full_name: form.full_name,
-        role: form.role,
-        location_id: form.location_id || null,
-      })
-    }
-
+  if (!res.ok) {
+    alert(result.error || 'Failed to send invite')
     setSaving(false)
-    setInviteSent(true)
-    setForm({ email: '', full_name: '', role: 'outlet_staff', location_id: '' })
-    fetchAll()
+    return
   }
+
+  setSaving(false)
+  setInviteSent(true)
+  setForm({ email: '', full_name: '', role: 'outlet_staff', location_id: '' })
+  fetchAll()
+}
 
   async function updateUserRole(userId, role) {
     await supabase.from('user_profiles').update({ role }).eq('id', userId)
