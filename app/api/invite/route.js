@@ -28,12 +28,23 @@ export async function POST(request) {
   }
 
   if (data?.user?.id) {
+    // Upsert first (handles case where no trigger exists)
     await supabase.from('user_profiles').upsert({
       id: data.user.id,
       full_name,
       role: role || 'outlet_staff',
       location_id: location_id || null,
-    })
+    }, { onConflict: 'id' })
+
+    // Explicit update to guarantee role/location are correct,
+    // overriding any default set by a handle_new_user trigger
+    await supabase.from('user_profiles')
+      .update({
+        full_name,
+        role: role || 'outlet_staff',
+        location_id: location_id || null,
+      })
+      .eq('id', data.user.id)
   }
 
   return NextResponse.json({ success: true })
