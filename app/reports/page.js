@@ -41,15 +41,19 @@ export default function ReportsPage() {
   }
 
   async function fetchStockValue() {
-    let query = supabase
-      .from('inventory_levels')
-      .select('*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)')
-      .eq('items.is_active', true)
-      .is('items.deleted_at', null)
-      .order('quantity', { ascending: false })
-    if (filterLocation !== 'all') query = query.eq('location_id', filterLocation)
-    const { data } = await query
-    setData(data || [])
+    const build = (withDeleted) => {
+      const sel = withDeleted
+        ? '*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)'
+        : '*, items!inner(name, reorder_level, is_active, categories(name), units(abbreviation)), locations(name)'
+      let q = supabase.from('inventory_levels').select(sel).eq('items.is_active', true)
+      if (withDeleted) q = q.is('items.deleted_at', null)
+      q = q.order('quantity', { ascending: false })
+      if (filterLocation !== 'all') q = q.eq('location_id', filterLocation)
+      return q
+    }
+    let res = await build(true)
+    if (res.error) res = await build(false)
+    setData(res.data || [])
   }
 
   async function fetchTransferHistory() {
@@ -111,14 +115,18 @@ export default function ReportsPage() {
   }
 
   async function fetchLowStock() {
-    let query = supabase
-      .from('inventory_levels')
-      .select('*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)')
-      .eq('items.is_active', true)
-      .is('items.deleted_at', null)
-    if (filterLocation !== 'all') query = query.eq('location_id', filterLocation)
-    const { data } = await query
-    const low = (data || []).filter(i => i.quantity <= (i.items?.reorder_level || 0))
+    const build = (withDeleted) => {
+      const sel = withDeleted
+        ? '*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)'
+        : '*, items!inner(name, reorder_level, is_active, categories(name), units(abbreviation)), locations(name)'
+      let q = supabase.from('inventory_levels').select(sel).eq('items.is_active', true)
+      if (withDeleted) q = q.is('items.deleted_at', null)
+      if (filterLocation !== 'all') q = q.eq('location_id', filterLocation)
+      return q
+    }
+    let res = await build(true)
+    if (res.error) res = await build(false)
+    const low = (res.data || []).filter(i => i.quantity <= (i.items?.reorder_level || 0))
     low.sort((a, b) => a.quantity - b.quantity)
     setData(low)
   }
