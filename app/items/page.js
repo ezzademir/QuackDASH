@@ -63,6 +63,7 @@ export default function ItemsPage() {
       category_id: form.category_id || null,
       unit_id: form.unit_id || null,
       reorder_level: parseFloat(form.reorder_level) || 0,
+      is_active: true,
     }
     if (editItem) {
       await supabase.from('items').update(payload).eq('id', editItem.id)
