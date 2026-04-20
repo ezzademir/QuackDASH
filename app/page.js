@@ -131,6 +131,7 @@ export default function Dashboard() {
             { href: '/stocktakes',  label: 'Stock takes' },
             { href: '/deliveries',  label: 'Deliveries' },
             { href: '/quackmaster', label: 'Quackmaster' },
+            { href: '/locations',   label: 'Locations' },
             { href: '/reports',     label: 'Reports' },
             { href: '/users',       label: 'Users' },
           ].map(({ href, label }) => (
