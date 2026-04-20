@@ -12,11 +12,20 @@ export default function Dashboard() {
   const [transfers, setTransfers] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeLocation, setActiveLocation] = useState('all')
+  const [userProfile, setUserProfile] = useState(null)
 
   useEffect(() => {
     fetchAll()
     subscribeToInventory()
+    fetchUserProfile()
   }, [])
+
+  async function fetchUserProfile() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase.from('user_profiles').select('full_name, role').eq('id', user.id).single()
+    if (data) setUserProfile(data)
+  }
 
   async function fetchAll() {
     setLoading(true)
@@ -82,43 +91,57 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50">
 
       {/* Header */}
-      <header className="bg-gray-900 text-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center text-gray-900 font-bold text-sm">Q</div>
-          <div>
-            <h1 className="font-bold text-lg leading-none">QuackDASH</h1>
-            <p className="text-gray-400 text-xs">Inventory Management</p>
-          </div>
-<div className="flex gap-3 mt-1">
-  <Link href="/items" className="text-yellow-400 text-xs hover:underline">Items</Link>
-  <Link href="/transfers" className="text-yellow-400 text-xs hover:underline">Transfers</Link>
-  <Link href="/stocktakes" className="text-yellow-400 text-xs hover:underline">Stock takes</Link>
-  <Link href="/deliveries" className="text-yellow-400 text-xs hover:underline">Deliveries</Link>
-  <Link href="/quackmaster" className="text-yellow-400 text-xs hover:underline">Quackmaster</Link>
-  <Link href="/reports" className="text-yellow-400 text-xs hover:underline">Reports</Link>
-  <Link href="/users" className="text-yellow-400 text-xs hover:underline">Users</Link>
-
-</div>
-        </div>
-        <div className="flex items-center gap-4">
-          {lowStockItems.length > 0 && (
-            <div className="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full animate-pulse">
-              {lowStockItems.length} low stock
+      <header className="bg-gray-900 text-white">
+        {/* Top bar */}
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center text-gray-900 font-bold text-sm shrink-0">Q</div>
+            <div>
+              <h1 className="font-bold text-base leading-none">QuackDASH</h1>
+              <p className="text-gray-400 text-[10px] mt-0.5">Inventory Management</p>
             </div>
-          )}
-          <div className="text-xs text-gray-400">
-            {new Date().toLocaleDateString('en-MY', { weekday: 'short', day: 'numeric', month: 'short' })}
           </div>
-<button
-  onClick={async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    window.location.href = '/login'
-  }}
-  className="text-xs text-gray-400 hover:text-white transition-colors"
->
-  Sign out
-</button>
+          <div className="flex items-center gap-3">
+            {lowStockItems.length > 0 && (
+              <div className="bg-red-500 text-white text-xs font-bold px-2.5 py-1 rounded-full animate-pulse">
+                {lowStockItems.length} low
+              </div>
+            )}
+            <div className="text-right">
+              {userProfile?.full_name && (
+                <p className="text-xs font-medium text-white leading-none">{userProfile.full_name}</p>
+              )}
+              <button
+                onClick={async () => {
+                  await supabase.auth.signOut()
+                  window.location.href = '/login'
+                }}
+                className="text-[10px] text-gray-400 hover:text-white transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+        {/* Nav row — horizontally scrollable on mobile */}
+        <div className="px-4 pb-2 flex gap-1 overflow-x-auto scrollbar-none">
+          {[
+            { href: '/items',       label: 'Items' },
+            { href: '/transfers',   label: 'Transfers' },
+            { href: '/stocktakes',  label: 'Stock takes' },
+            { href: '/deliveries',  label: 'Deliveries' },
+            { href: '/quackmaster', label: 'Quackmaster' },
+            { href: '/reports',     label: 'Reports' },
+            { href: '/users',       label: 'Users' },
+          ].map(({ href, label }) => (
+            <Link
+              key={href}
+              href={href}
+              className="shrink-0 text-yellow-400 text-xs px-3 py-1.5 rounded-full hover:bg-gray-800 transition-colors whitespace-nowrap"
+            >
+              {label}
+            </Link>
+          ))}
         </div>
       </header>
 
