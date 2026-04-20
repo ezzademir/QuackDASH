@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { activeOnly } from '../../lib/db'
 import Link from 'next/link'
 
 export default function TransfersPage() {
@@ -36,7 +37,7 @@ export default function TransfersPage() {
         .from('stock_transfers')
         .select('*, from_location:locations!stock_transfers_from_location_id_fkey(name), to_location:locations!stock_transfers_to_location_id_fkey(name)')
         .order('requested_at', { ascending: false }),
-      supabase.from('locations').select('*').order('type'),
+      activeOnly(supabase, 'locations', q => q.select('*').order('type')),
       supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
     ])
     if (trx.data) setTransfers(trx.data)

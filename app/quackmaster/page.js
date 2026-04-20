@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '../../lib/supabase'
 import { logAudit, getCurrentUserEmail } from '../../lib/audit'
+import { activeOnly } from '../../lib/db'
 import Link from 'next/link'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -45,7 +46,7 @@ export default function QuackmasterPage() {
   async function fetchAll() {
     setLoading(true)
     const [it, st, lg] = await Promise.all([
-      supabase.from('qm_production_items').select('*').order('name'),
+      activeOnly(supabase, 'qm_production_items', q => q.select('*').order('name')),
       supabase.from('qm_stock_levels').select('*'),
       supabase.from('qm_production_logs')
         .select('*, qm_production_items(name, unit)')

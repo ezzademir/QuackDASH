@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { activeOnly } from '../../lib/db'
 import Link from 'next/link'
 
 export default function UsersPage() {
@@ -38,7 +39,7 @@ export default function UsersPage() {
     setLoading(true)
     const [usr, loc] = await Promise.all([
       supabase.from('user_profiles').select('*, locations(name)').order('created_at', { ascending: false }),
-      supabase.from('locations').select('*').order('name'),
+      activeOnly(supabase, 'locations', q => q.select('*').order('name')),
     ])
     if (usr.data) setUsers(usr.data)
     if (loc.data) setLocations(loc.data)

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../lib/supabase'
+import { activeOnly } from '../lib/db'
 import Link from 'next/link'
 
 export default function Dashboard() {
@@ -30,7 +31,7 @@ export default function Dashboard() {
   async function fetchAll() {
     setLoading(true)
     const [loc, inv, itm, trx] = await Promise.all([
-      supabase.from('locations').select('*').order('type'),
+      activeOnly(supabase, 'locations', q => q.select('*').order('type')),
       supabase.from('inventory_levels').select('*, items(name, reorder_level, units(abbreviation), is_active, deleted_at), locations(name)'),
       supabase.from('items').select('*, categories(name), units(abbreviation)').eq('is_active', true),
       supabase.from('stock_transfers').select('*, from_location:locations!stock_transfers_from_location_id_fkey(name), to_location:locations!stock_transfers_to_location_id_fkey(name)').in('status', ['requested', 'approved', 'in_transit']).order('requested_at', { ascending: false }).limit(5),

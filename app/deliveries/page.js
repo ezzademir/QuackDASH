@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { activeOnly } from '../../lib/db'
 import Link from 'next/link'
 
 export default function DeliveriesPage() {
@@ -35,7 +36,7 @@ export default function DeliveriesPage() {
         .from('delivery_orders')
         .select('*, locations(name), suppliers(name)')
         .order('created_at', { ascending: false }),
-      supabase.from('locations').select('*').order('name'),
+      activeOnly(supabase, 'locations', q => q.select('*').order('name')),
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
     ])

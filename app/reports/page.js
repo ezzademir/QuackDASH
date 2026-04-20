@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { activeOnly } from '../../lib/db'
 import Link from 'next/link'
 
 export default function ReportsPage() {
@@ -22,7 +23,7 @@ export default function ReportsPage() {
   useEffect(() => { fetchReport() }, [activeReport, filterLocation, dateFrom, dateTo])
 
   async function fetchLocations() {
-    const { data } = await supabase.from('locations').select('*').order('name')
+    const { data } = await activeOnly(supabase, 'locations', q => q.select('*').order('name'))
     if (data) setLocations(data)
   }
 

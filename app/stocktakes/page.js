@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { activeOnly } from '../../lib/db'
 import Link from 'next/link'
 
 export default function StockTakesPage() {
@@ -28,7 +29,7 @@ export default function StockTakesPage() {
         .from('stock_takes')
         .select('*, locations(name)')
         .order('started_at', { ascending: false }),
-      supabase.from('locations').select('*').order('name'),
+      activeOnly(supabase, 'locations', q => q.select('*').order('name')),
       supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
     ])
     if (st.data) setStockTakes(st.data)
