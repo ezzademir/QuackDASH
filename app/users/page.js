@@ -11,9 +11,9 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [inviteSent, setInviteSent] = useState(false)
+  const [userAdded, setUserAdded] = useState(false)
   const [form, setForm] = useState({
-    email: '', full_name: '', role: 'outlet_staff', location_id: ''
+    email: '', full_name: '', role: 'outlet_staff', location_id: '', password: ''
   })
 
   const roles = [
@@ -45,35 +45,37 @@ export default function UsersPage() {
     setLoading(false)
   }
 
- async function inviteUser() {
-  if (!form.email.trim()) return alert('Email is required')
-  if (!form.full_name.trim()) return alert('Name is required')
-  setSaving(true)
+  async function addUser() {
+    if (!form.email.trim()) return alert('Email is required')
+    if (!form.full_name.trim()) return alert('Name is required')
+    if (!form.password || form.password.length < 6) return alert('Password must be at least 6 characters')
+    setSaving(true)
 
-  const res = await fetch('/api/invite', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: form.email,
-      full_name: form.full_name,
-      role: form.role,
-      location_id: form.location_id || null,
+    const res = await fetch('/api/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: form.email,
+        full_name: form.full_name,
+        role: form.role,
+        location_id: form.location_id || null,
+        password: form.password,
+      })
     })
-  })
 
-  const result = await res.json()
+    const result = await res.json()
 
-  if (!res.ok) {
-    alert(result.error || 'Failed to send invite')
+    if (!res.ok) {
+      alert(result.error || 'Failed to create user')
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
-    return
+    setUserAdded(true)
+    setForm({ email: '', full_name: '', role: 'outlet_staff', location_id: '', password: '' })
+    fetchAll()
   }
-
-  setSaving(false)
-  setInviteSent(true)
-  setForm({ email: '', full_name: '', role: 'outlet_staff', location_id: '' })
-  fetchAll()
-}
 
   async function updateUserRole(userId, role) {
     await supabase.from('user_profiles').update({ role }).eq('id', userId)
@@ -107,10 +109,10 @@ export default function UsersPage() {
           </div>
         </div>
         <button
-          onClick={() => { setShowForm(true); setInviteSent(false) }}
+          onClick={() => { setShowForm(true); setUserAdded(false) }}
           className="bg-yellow-400 text-gray-900 text-sm font-bold px-4 py-2 rounded-lg hover:bg-yellow-300 transition-colors"
         >
-          + Invite user
+          + Add user
         </button>
       </header>
 
@@ -136,7 +138,7 @@ export default function UsersPage() {
               <div className="text-4xl mb-3">👥</div>
               <p className="text-gray-500 text-sm font-medium">No users yet</p>
               <button onClick={() => setShowForm(true)} className="mt-4 bg-yellow-400 text-gray-900 text-sm font-bold px-4 py-2 rounded-lg">
-                + Invite first user
+                + Add first user
               </button>
             </div>
           ) : (
@@ -201,18 +203,18 @@ export default function UsersPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
             <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-bold text-gray-900">Invite team member</h2>
+              <h2 className="font-bold text-gray-900">Add team member</h2>
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
             </div>
 
-            {inviteSent ? (
+            {userAdded ? (
               <div className="px-6 py-10 text-center">
-                <div className="text-5xl mb-4">✉️</div>
-                <p className="font-bold text-gray-900 text-lg">Invite sent</p>
-                <p className="text-gray-500 text-sm mt-2">They'll receive an email with a link to set their password and access QuackDASH.</p>
+                <div className="text-5xl mb-4">✅</div>
+                <p className="font-bold text-gray-900 text-lg">User added</p>
+                <p className="text-gray-500 text-sm mt-2">They can now log in with their email and password.</p>
                 <div className="flex gap-3 mt-6">
-                  <button onClick={() => setInviteSent(false)} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-lg hover:bg-gray-50">
-                    Invite another
+                  <button onClick={() => setUserAdded(false)} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-lg hover:bg-gray-50">
+                    Add another
                   </button>
                   <button onClick={() => setShowForm(false)} className="flex-1 bg-yellow-400 text-gray-900 text-sm font-bold py-2.5 rounded-lg hover:bg-yellow-300">
                     Done
@@ -265,8 +267,15 @@ export default function UsersPage() {
                       {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </select>
                   </div>
-                  <div className="bg-blue-50 text-blue-700 text-xs px-4 py-3 rounded-lg">
-                    An invite email will be sent from <strong>onboarding@resend.dev</strong>. They click the link and set their own password.
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Password *</label>
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={e => setForm({ ...form, password: e.target.value })}
+                      placeholder="Min. 6 characters"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                    />
                   </div>
                 </div>
                 <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
@@ -277,11 +286,11 @@ export default function UsersPage() {
                     Cancel
                   </button>
                   <button
-                    onClick={inviteUser}
+                    onClick={addUser}
                     disabled={saving}
                     className="flex-1 bg-yellow-400 text-gray-900 text-sm font-bold py-2.5 rounded-lg hover:bg-yellow-300 disabled:opacity-50"
                   >
-                    {saving ? 'Sending invite...' : 'Send invite'}
+                    {saving ? 'Creating...' : 'Add user'}
                   </button>
                 </div>
               </>
