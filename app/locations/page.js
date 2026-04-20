@@ -65,11 +65,44 @@ export default function LocationsPage() {
   }
 
   async function deleteLocation(loc) {
-    if (!confirm(`Delete "${loc.name}"? This will affect any inventory, transfers, and deliveries linked to this location.`)) return
+    if (!confirm(`Delete "${loc.name}"?\n\nThis will permanently remove all inventory, stock takes, deliveries, and transfers linked to this location.`)) return
     setDeleting(loc.id)
+
+    // 1. Unassign users
+    await supabase.from('user_profiles').update({ location_id: null }).eq('location_id', loc.id)
+
+    // 2. Delete inventory
+    await supabase.from('inventory_levels').delete().eq('location_id', loc.id)
+
+    // 3. Delete stock take items then stock takes
+    const { data: takes } = await supabase.from('stock_takes').select('id').eq('location_id', loc.id)
+    if (takes?.length) {
+      const takeIds = takes.map(t => t.id)
+      await supabase.from('stock_take_items').delete().in('take_id', takeIds)
+      await supabase.from('stock_takes').delete().in('id', takeIds)
+    }
+
+    // 4. Delete delivery line items then delivery orders
+    const { data: orders } = await supabase.from('delivery_orders').select('id').eq('location_id', loc.id)
+    if (orders?.length) {
+      const orderIds = orders.map(o => o.id)
+      await supabase.from('do_line_items').delete().in('delivery_order_id', orderIds)
+      await supabase.from('delivery_orders').delete().in('id', orderIds)
+    }
+
+    // 5. Delete transfer line items then transfers
+    const { data: transfers } = await supabase.from('stock_transfers').select('id')
+      .or(`from_location_id.eq.${loc.id},to_location_id.eq.${loc.id}`)
+    if (transfers?.length) {
+      const transferIds = transfers.map(t => t.id)
+      await supabase.from('transfer_line_items').delete().in('transfer_id', transferIds)
+      await supabase.from('stock_transfers').delete().in('id', transferIds)
+    }
+
+    // 6. Finally delete the location
     const { error } = await supabase.from('locations').delete().eq('id', loc.id)
     setDeleting(null)
-    if (error) { alert('Cannot delete: ' + error.message); return }
+    if (error) { alert('Could not delete location: ' + error.message); return }
     fetchLocations()
   }
 
