@@ -24,15 +24,24 @@ export default function ItemsPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [itm, cat, unt] = await Promise.all([
-      supabase.from('items').select('*, categories(name), units(abbreviation, name)').order('name'),
-      supabase.from('categories').select('*').order('name'),
-      supabase.from('units').select('*').order('name'),
-    ])
-    if (itm.data) setItems(itm.data)
-    if (cat.data) setCategories(cat.data)
-    if (unt.data) setUnits(unt.data)
-    setLoading(false)
+    try {
+      const results = await Promise.allSettled([
+        supabase.from('items').select('*, categories(name), units(abbreviation, name)').order('name'),
+        supabase.from('categories').select('*').order('name'),
+        supabase.from('units').select('*').order('name'),
+      ])
+      const [itm, cat, unt] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [], error: r.reason })
+      if (itm.error) console.error('items fetch:', itm.error)
+      if (cat.error) console.error('categories fetch:', cat.error)
+      if (unt.error) console.error('units fetch:', unt.error)
+      if (itm.data) setItems(itm.data)
+      if (cat.data) setCategories(cat.data)
+      if (unt.data) setUnits(unt.data)
+    } catch (err) {
+      console.error('Items fetchAll failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   function openNew() {
@@ -65,25 +74,62 @@ export default function ItemsPage() {
       reorder_level: parseFloat(form.reorder_level) || 0,
       is_active: true,
     }
-    if (editItem) {
-      await supabase.from('items').update(payload).eq('id', editItem.id)
-      await logAudit(supabase, {
-        table: 'items', recordId: editItem.id, action: 'update', performedBy: by,
-        summary: `Updated item "${payload.name}"`,
-        oldData: { name: editItem.name, sku: editItem.sku, reorder_level: editItem.reorder_level },
-        newData: payload,
-      })
-    } else {
-      const { data } = await supabase.from('items').insert(payload).select().single()
-      await logAudit(supabase, {
-        table: 'items', recordId: data?.id, action: 'create', performedBy: by,
-        summary: `Created item "${payload.name}"`,
-        newData: payload,
-      })
+    try {
+      if (editItem) {
+        const { error } = await supabase.from('items').update(payload).eq('id', editItem.id)
+        if (error) throw error
+        await logAudit(supabase, {
+          table: 'items', recordId: editItem.id, action: 'update', performedBy: by,
+          summary: `Updated item "${payload.name}"`,
+          oldData: { name: editItem.name, sku: editItem.sku, reorder_level: editItem.reorder_level },
+          newData: payload,
+        })
+      } else {
+        const { data, error } = await supabase.from('items').insert(payload).select().single()
+        if (error) throw error
+        await logAudit(supabase, {
+          table: 'items', recordId: data?.id, action: 'create', performedBy: by,
+          summary: `Created item "${payload.name}"`,
+          newData: payload,
+        })
+      }
+      setShowForm(false)
+      await fetchAll()
+    } catch (err) {
+      console.error('saveItem failed:', err)
+      alert('Could not save item: ' + (err.message || 'unknown error'))
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    setShowForm(false)
-    fetchAll()
+  }
+
+  // --- Quick-add category / unit ---
+  const [showCatForm, setShowCatForm] = useState(false)
+  const [showUnitForm, setShowUnitForm] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [newUnit, setNewUnit] = useState({ name: '', abbreviation: '' })
+
+  async function addCategory() {
+    if (!newCatName.trim()) return
+    const { data, error } = await supabase.from('categories').insert({ name: newCatName.trim() }).select().single()
+    if (error) { alert('Could not add category: ' + error.message); return }
+    setNewCatName('')
+    setShowCatForm(false)
+    await fetchAll()
+    if (data?.id) setForm(f => ({ ...f, category_id: data.id }))
+  }
+
+  async function addUnit() {
+    if (!newUnit.name.trim() || !newUnit.abbreviation.trim()) return alert('Both name and abbreviation required')
+    const { data, error } = await supabase.from('units').insert({
+      name: newUnit.name.trim(),
+      abbreviation: newUnit.abbreviation.trim(),
+    }).select().single()
+    if (error) { alert('Could not add unit: ' + error.message); return }
+    setNewUnit({ name: '', abbreviation: '' })
+    setShowUnitForm(false)
+    await fetchAll()
+    if (data?.id) setForm(f => ({ ...f, unit_id: data.id }))
   }
 
   async function toggleActive(item) {
@@ -258,26 +304,69 @@ export default function ItemsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category</label>
-                  <select
-                    value={form.category_id}
-                    onChange={e => setForm({ ...form, category_id: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                  >
-                    <option value="">Select...</option>
-                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-gray-600">Category</label>
+                    <button type="button" onClick={() => setShowCatForm(v => !v)} className="text-xs text-yellow-600 font-medium hover:underline">
+                      {showCatForm ? 'Cancel' : '+ New'}
+                    </button>
+                  </div>
+                  {showCatForm ? (
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                        value={newCatName}
+                        onChange={e => setNewCatName(e.target.value)}
+                        placeholder="Category name"
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                      />
+                      <button type="button" onClick={addCategory} className="bg-yellow-400 text-gray-900 text-xs font-bold px-3 rounded-lg hover:bg-yellow-300">Add</button>
+                    </div>
+                  ) : (
+                    <select
+                      value={form.category_id}
+                      onChange={e => setForm({ ...form, category_id: e.target.value })}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                    >
+                      <option value="">Select...</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Unit</label>
-                  <select
-                    value={form.unit_id}
-                    onChange={e => setForm({ ...form, unit_id: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                  >
-                    <option value="">Select...</option>
-                    {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>)}
-                  </select>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-gray-600">Unit</label>
+                    <button type="button" onClick={() => setShowUnitForm(v => !v)} className="text-xs text-yellow-600 font-medium hover:underline">
+                      {showUnitForm ? 'Cancel' : '+ New'}
+                    </button>
+                  </div>
+                  {showUnitForm ? (
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                        value={newUnit.name}
+                        onChange={e => setNewUnit({ ...newUnit, name: e.target.value })}
+                        placeholder="Kilogram"
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm min-w-0 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                      />
+                      <input
+                        type="text"
+                        value={newUnit.abbreviation}
+                        onChange={e => setNewUnit({ ...newUnit, abbreviation: e.target.value })}
+                        placeholder="kg"
+                        className="w-14 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                      />
+                      <button type="button" onClick={addUnit} className="bg-yellow-400 text-gray-900 text-xs font-bold px-3 rounded-lg hover:bg-yellow-300">Add</button>
+                    </div>
+                  ) : (
+                    <select
+                      value={form.unit_id}
+                      onChange={e => setForm({ ...form, unit_id: e.target.value })}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                    >
+                      <option value="">Select...</option>
+                      {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>)}
+                    </select>
+                  )}
                 </div>
               </div>
               <div>
