@@ -94,6 +94,7 @@ export default function Dashboard() {
   <Link href="/transfers" className="text-yellow-400 text-xs hover:underline">Transfers</Link>
   <Link href="/stocktakes" className="text-yellow-400 text-xs hover:underline">Stock takes</Link>
   <Link href="/deliveries" className="text-yellow-400 text-xs hover:underline">Deliveries</Link>
+  <Link href="/quackmaster" className="text-yellow-400 text-xs hover:underline">Quackmaster</Link>
   <Link href="/reports" className="text-yellow-400 text-xs hover:underline">Reports</Link>
   <Link href="/users" className="text-yellow-400 text-xs hover:underline">Users</Link>
 
