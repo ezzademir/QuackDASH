@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
 const LOCATION_DEFAULTS = { name: '', type: 'outlet' }
@@ -33,6 +34,7 @@ export default function LocationsPage() {
     const { data } = await supabase
       .from('locations')
       .select('*')
+      .is('deleted_at', null)
       .order('type')
       .order('name')
     if (data) setLocations(data)
@@ -54,55 +56,53 @@ export default function LocationsPage() {
   async function save() {
     if (!form.name.trim()) return alert('Name is required')
     setSaving(true)
+    const by = await getCurrentUserEmail(supabase)
     const payload = { name: form.name.trim(), type: form.type }
-    const { error } = editing
-      ? await supabase.from('locations').update(payload).eq('id', editing.id)
-      : await supabase.from('locations').insert(payload)
+
+    if (editing) {
+      const { error } = await supabase.from('locations').update(payload).eq('id', editing.id)
+      if (error) { alert('Error: ' + error.message); setSaving(false); return }
+      await logAudit(supabase, {
+        table: 'locations', recordId: editing.id, action: 'update', performedBy: by,
+        summary: `Updated location "${payload.name}"`,
+        oldData: { name: editing.name, type: editing.type },
+        newData: payload,
+      })
+    } else {
+      const { data, error } = await supabase.from('locations').insert(payload).select().single()
+      if (error) { alert('Error: ' + error.message); setSaving(false); return }
+      await logAudit(supabase, {
+        table: 'locations', recordId: data?.id, action: 'create', performedBy: by,
+        summary: `Created location "${payload.name}" (${payload.type})`,
+        newData: payload,
+      })
+    }
+
     setSaving(false)
-    if (error) { alert('Error: ' + error.message); return }
     setModal(false)
     fetchLocations()
   }
 
   async function deleteLocation(loc) {
-    if (!confirm(`Delete "${loc.name}"?\n\nThis will permanently remove all inventory, stock takes, deliveries, and transfers linked to this location.`)) return
+    if (!confirm(`Delete "${loc.name}"?\n\nThe location will be hidden but all linked data (inventory, transfers, deliveries) is preserved and visible in the audit log.`)) return
     setDeleting(loc.id)
+    const by = await getCurrentUserEmail(supabase)
+    const now = new Date().toISOString()
 
-    // 1. Unassign users
-    await supabase.from('user_profiles').update({ location_id: null }).eq('location_id', loc.id)
+    const { error } = await supabase
+      .from('locations')
+      .update({ deleted_at: now, deleted_by: by })
+      .eq('id', loc.id)
 
-    // 2. Delete inventory
-    await supabase.from('inventory_levels').delete().eq('location_id', loc.id)
+    if (error) { alert('Could not delete location: ' + error.message); setDeleting(null); return }
 
-    // 3. Delete stock take items then stock takes
-    const { data: takes } = await supabase.from('stock_takes').select('id').eq('location_id', loc.id)
-    if (takes?.length) {
-      const takeIds = takes.map(t => t.id)
-      await supabase.from('stock_take_items').delete().in('take_id', takeIds)
-      await supabase.from('stock_takes').delete().in('id', takeIds)
-    }
+    await logAudit(supabase, {
+      table: 'locations', recordId: loc.id, action: 'delete', performedBy: by,
+      summary: `Deleted location "${loc.name}"`,
+      oldData: { name: loc.name, type: loc.type },
+    })
 
-    // 4. Delete delivery line items then delivery orders
-    const { data: orders } = await supabase.from('delivery_orders').select('id').eq('location_id', loc.id)
-    if (orders?.length) {
-      const orderIds = orders.map(o => o.id)
-      await supabase.from('do_line_items').delete().in('delivery_order_id', orderIds)
-      await supabase.from('delivery_orders').delete().in('id', orderIds)
-    }
-
-    // 5. Delete transfer line items then transfers
-    const { data: transfers } = await supabase.from('stock_transfers').select('id')
-      .or(`from_location_id.eq.${loc.id},to_location_id.eq.${loc.id}`)
-    if (transfers?.length) {
-      const transferIds = transfers.map(t => t.id)
-      await supabase.from('transfer_line_items').delete().in('transfer_id', transferIds)
-      await supabase.from('stock_transfers').delete().in('id', transferIds)
-    }
-
-    // 6. Finally delete the location
-    const { error } = await supabase.from('locations').delete().eq('id', loc.id)
     setDeleting(null)
-    if (error) { alert('Could not delete location: ' + error.message); return }
     fetchLocations()
   }
 

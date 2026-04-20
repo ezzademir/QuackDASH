@@ -134,6 +134,7 @@ export default function Dashboard() {
             { href: '/locations',   label: 'Locations' },
             { href: '/reports',     label: 'Reports' },
             { href: '/users',       label: 'Users' },
+            { href: '/audit',       label: 'Audit Log' },
           ].map(({ href, label }) => (
             <Link
               key={href}

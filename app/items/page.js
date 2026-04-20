@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
 export default function ItemsPage() {
@@ -55,6 +56,7 @@ export default function ItemsPage() {
   async function saveItem() {
     if (!form.name.trim()) return alert('Item name is required')
     setSaving(true)
+    const by = await getCurrentUserEmail(supabase)
     const payload = {
       name: form.name.trim(),
       sku: form.sku.trim() || null,
@@ -64,8 +66,19 @@ export default function ItemsPage() {
     }
     if (editItem) {
       await supabase.from('items').update(payload).eq('id', editItem.id)
+      await logAudit(supabase, {
+        table: 'items', recordId: editItem.id, action: 'update', performedBy: by,
+        summary: `Updated item "${payload.name}"`,
+        oldData: { name: editItem.name, sku: editItem.sku, reorder_level: editItem.reorder_level },
+        newData: payload,
+      })
     } else {
-      await supabase.from('items').insert(payload)
+      const { data } = await supabase.from('items').insert(payload).select().single()
+      await logAudit(supabase, {
+        table: 'items', recordId: data?.id, action: 'create', performedBy: by,
+        summary: `Created item "${payload.name}"`,
+        newData: payload,
+      })
     }
     setSaving(false)
     setShowForm(false)
@@ -73,7 +86,14 @@ export default function ItemsPage() {
   }
 
   async function toggleActive(item) {
+    const by = await getCurrentUserEmail(supabase)
     await supabase.from('items').update({ is_active: !item.is_active }).eq('id', item.id)
+    await logAudit(supabase, {
+      table: 'items', recordId: item.id,
+      action: item.is_active ? 'delete' : 'restore',
+      performedBy: by,
+      summary: `${item.is_active ? 'Deactivated' : 'Reactivated'} item "${item.name}"`,
+    })
     fetchAll()
   }
 

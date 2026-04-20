@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '../../lib/supabase'
+import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -44,7 +45,7 @@ export default function QuackmasterPage() {
   async function fetchAll() {
     setLoading(true)
     const [it, st, lg] = await Promise.all([
-      supabase.from('qm_production_items').select('*').order('name'),
+      supabase.from('qm_production_items').select('*').is('deleted_at', null).order('name'),
       supabase.from('qm_stock_levels').select('*'),
       supabase.from('qm_production_logs')
         .select('*, qm_production_items(name, unit)')
@@ -187,6 +188,7 @@ export default function QuackmasterPage() {
     if (!itemForm.name.trim()) return alert('Name is required')
     if (!itemForm.unit.trim()) return alert('Unit is required')
     setSavingItem(true)
+    const by = await getCurrentUserEmail(supabase)
     const payload = {
       name: itemForm.name.trim(),
       type: itemForm.type,
@@ -195,24 +197,42 @@ export default function QuackmasterPage() {
       schedule_days: itemForm.schedule_days,
       schedule_label: itemForm.schedule_label.trim() || null,
     }
-    let error
     if (editingItem) {
-      ;({ error } = await supabase.from('qm_production_items').update(payload).eq('id', editingItem.id))
+      const { error } = await supabase.from('qm_production_items').update(payload).eq('id', editingItem.id)
+      if (error) { alert('Error: ' + error.message); setSavingItem(false); return }
+      await logAudit(supabase, {
+        table: 'qm_production_items', recordId: editingItem.id, action: 'update', performedBy: by,
+        summary: `Updated production item "${payload.name}"`,
+        oldData: { name: editingItem.name, type: editingItem.type, unit: editingItem.unit, max_qty: editingItem.max_qty },
+        newData: payload,
+      })
     } else {
-      ;({ error } = await supabase.from('qm_production_items').insert(payload))
+      const { data, error } = await supabase.from('qm_production_items').insert(payload).select().single()
+      if (error) { alert('Error: ' + error.message); setSavingItem(false); return }
+      await logAudit(supabase, {
+        table: 'qm_production_items', recordId: data?.id, action: 'create', performedBy: by,
+        summary: `Created production item "${payload.name}"`,
+        newData: payload,
+      })
     }
     setSavingItem(false)
-    if (error) { alert('Error: ' + error.message); return }
     setItemModal(false)
     fetchAll()
   }
 
   async function deleteItem(item) {
-    if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return
+    if (!confirm(`Delete "${item.name}"?\n\nThe item will be hidden but its stock and production history is preserved.`)) return
     setDeletingItem(item.id)
-    const { error } = await supabase.from('qm_production_items').delete().eq('id', item.id)
+    const by = await getCurrentUserEmail(supabase)
+    const now = new Date().toISOString()
+    const { error } = await supabase.from('qm_production_items').update({ deleted_at: now, deleted_by: by }).eq('id', item.id)
+    if (error) { alert('Error: ' + error.message); setDeletingItem(null); return }
+    await logAudit(supabase, {
+      table: 'qm_production_items', recordId: item.id, action: 'delete', performedBy: by,
+      summary: `Deleted production item "${item.name}"`,
+      oldData: { name: item.name, type: item.type, unit: item.unit },
+    })
     setDeletingItem(null)
-    if (error) { alert('Error: ' + error.message); return }
     fetchAll()
   }
 
