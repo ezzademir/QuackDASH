@@ -45,7 +45,7 @@ export default function QuackmasterPage() {
   async function fetchAll() {
     setLoading(true)
     const [it, st, lg] = await Promise.all([
-      supabase.from('qm_production_items').select('*').is('deleted_at', null).order('name'),
+      supabase.from('qm_production_items').select('*').order('name'),
       supabase.from('qm_stock_levels').select('*'),
       supabase.from('qm_production_logs')
         .select('*, qm_production_items(name, unit)')
@@ -225,7 +225,10 @@ export default function QuackmasterPage() {
     setDeletingItem(item.id)
     const by = await getCurrentUserEmail(supabase)
     const now = new Date().toISOString()
-    const { error } = await supabase.from('qm_production_items').update({ deleted_at: now, deleted_by: by }).eq('id', item.id)
+    let { error } = await supabase.from('qm_production_items').update({ deleted_at: now, deleted_by: by }).eq('id', item.id)
+    if (error) {
+      ;({ error } = await supabase.from('qm_production_items').delete().eq('id', item.id))
+    }
     if (error) { alert('Error: ' + error.message); setDeletingItem(null); return }
     await logAudit(supabase, {
       table: 'qm_production_items', recordId: item.id, action: 'delete', performedBy: by,

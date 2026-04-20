@@ -31,12 +31,12 @@ export default function LocationsPage() {
 
   async function fetchLocations() {
     setLoading(true)
-    const { data } = await supabase
-      .from('locations')
-      .select('*')
-      .is('deleted_at', null)
-      .order('type')
-      .order('name')
+    // Try with soft-delete filter; fall back without it if column doesn't exist yet
+    let { data, error } = await supabase
+      .from('locations').select('*').is('deleted_at', null).order('type').order('name')
+    if (error) {
+      ;({ data } = await supabase.from('locations').select('*').order('type').order('name'))
+    }
     if (data) setLocations(data)
     setLoading(false)
   }
@@ -89,11 +89,12 @@ export default function LocationsPage() {
     const by = await getCurrentUserEmail(supabase)
     const now = new Date().toISOString()
 
-    const { error } = await supabase
-      .from('locations')
-      .update({ deleted_at: now, deleted_by: by })
-      .eq('id', loc.id)
-
+    // Try soft delete first; fall back to hard delete if column doesn't exist
+    let { error } = await supabase
+      .from('locations').update({ deleted_at: now, deleted_by: by }).eq('id', loc.id)
+    if (error) {
+      ;({ error } = await supabase.from('locations').delete().eq('id', loc.id))
+    }
     if (error) { alert('Could not delete location: ' + error.message); setDeleting(null); return }
 
     await logAudit(supabase, {
