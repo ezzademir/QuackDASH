@@ -31,8 +31,8 @@ export default function Dashboard() {
     setLoading(true)
     const [loc, inv, itm, trx] = await Promise.all([
       supabase.from('locations').select('*').order('type'),
-      supabase.from('inventory_levels').select('*, items(name, reorder_level, units(abbreviation)), locations(name)'),
-      supabase.from('items').select('*, categories(name), units(abbreviation)'),
+      supabase.from('inventory_levels').select('*, items(name, reorder_level, units(abbreviation), is_active, deleted_at), locations(name)'),
+      supabase.from('items').select('*, categories(name), units(abbreviation)').eq('is_active', true),
       supabase.from('stock_transfers').select('*, from_location:locations!stock_transfers_from_location_id_fkey(name), to_location:locations!stock_transfers_to_location_id_fkey(name)').in('status', ['requested', 'approved', 'in_transit']).order('requested_at', { ascending: false }).limit(5),
     ])
     if (loc.data) setLocations(loc.data)
@@ -51,11 +51,15 @@ export default function Dashboard() {
     return () => supabase.removeChannel(channel)
   }
 
-  const filteredInventory = activeLocation === 'all'
-    ? inventory
-    : inventory.filter(i => i.location_id === activeLocation)
+  const activeInventory = inventory.filter(i =>
+    i.items?.is_active !== false && i.items?.deleted_at == null
+  )
 
-  const lowStockItems = inventory.filter(i =>
+  const filteredInventory = activeLocation === 'all'
+    ? activeInventory
+    : activeInventory.filter(i => i.location_id === activeLocation)
+
+  const lowStockItems = activeInventory.filter(i =>
     i.quantity <= (i.items?.reorder_level || 0) && i.quantity >= 0
   )
 
