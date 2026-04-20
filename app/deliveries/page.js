@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
 import { activeOnly } from '../../lib/db'
+import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
 export default function DeliveriesPage() {
@@ -37,7 +38,7 @@ export default function DeliveriesPage() {
         .select('*, locations(name), suppliers(name)')
         .order('created_at', { ascending: false }),
       activeOnly(supabase, 'locations', q => q.select('*').order('name')),
-      supabase.from('suppliers').select('*').order('name'),
+      activeOnly(supabase, 'suppliers', q => q.select('*').order('name')),
       supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
     ])
     if (del.data) setDeliveries(del.data)
@@ -91,6 +92,15 @@ export default function DeliveriesPage() {
         unit_price: parseFloat(l.unit_price) || null,
       }))
     )
+
+    const by = await getCurrentUserEmail(supabase)
+    const locName = locations.find(l => l.id === form.location_id)?.name
+    const supName = suppliers.find(s => s.id === form.supplier_id)?.name
+    await logAudit(supabase, {
+      table: 'delivery_orders', recordId: doData.id, action: 'create', performedBy: by,
+      summary: `Created delivery order ${form.do_number} for ${locName}${supName ? ' from ' + supName : ''}`,
+      newData: { do_number: form.do_number, location: locName, supplier: supName, items: validLines.length },
+    })
 
     setSaving(false)
     setShowForm(false)
@@ -159,6 +169,13 @@ export default function DeliveriesPage() {
       })
       .eq('id', delivery.id)
 
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'delivery_orders', recordId: delivery.id, action: 'update', performedBy: by,
+      summary: `Confirmed receipt of ${delivery.do_number}${hasVariance ? ' (with variances)' : ''}`,
+      oldData: { status: 'pending' },
+      newData: { status: hasVariance ? 'partial' : 'received', variances: hasVariance },
+    })
     setSelectedDO({ ...delivery, status: hasVariance ? 'partial' : 'received' })
     fetchAll()
   }
@@ -199,7 +216,13 @@ export default function DeliveriesPage() {
 
   async function saveSupplier() {
     if (!supplierForm.name.trim()) return alert('Supplier name is required')
-    await supabase.from('suppliers').insert({ ...supplierForm })
+    const { data: newSup } = await supabase.from('suppliers').insert({ ...supplierForm }).select().single()
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'suppliers', recordId: newSup?.id, action: 'create', performedBy: by,
+      summary: `Added supplier "${supplierForm.name}"`,
+      newData: supplierForm,
+    })
     setShowSupplierForm(false)
     setSupplierForm({ name: '', contact_name: '', phone: '', email: '' })
     fetchAll()

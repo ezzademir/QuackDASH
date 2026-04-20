@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
 import { activeOnly } from '../../lib/db'
+import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
 export default function TransfersPage() {
@@ -91,6 +92,15 @@ export default function TransfersPage() {
       }))
     )
 
+    const by = await getCurrentUserEmail(supabase)
+    const fromLoc = locations.find(l => l.id === form.from_location_id)?.name
+    const toLoc = locations.find(l => l.id === form.to_location_id)?.name
+    await logAudit(supabase, {
+      table: 'stock_transfers', recordId: transfer.id, action: 'create', performedBy: by,
+      summary: `Created transfer ${transfer.transfer_number} from ${fromLoc} to ${toLoc}`,
+      newData: { from: fromLoc, to: toLoc, items: validLines.length, notes: form.notes },
+    })
+
     setSaving(false)
     setShowForm(false)
     setForm({ from_location_id: '', to_location_id: '', notes: '' })
@@ -145,6 +155,13 @@ export default function TransfersPage() {
       }
     }
     await supabase.from('stock_transfers').update(updates).eq('id', transfer.id)
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'stock_transfers', recordId: transfer.id, action: 'update', performedBy: by,
+      summary: `Transfer ${transfer.transfer_number} status changed to ${newStatus}`,
+      oldData: { status: transfer.status },
+      newData: { status: newStatus },
+    })
     setSelectedTransfer({ ...transfer, status: newStatus })
     fetchAll()
   }

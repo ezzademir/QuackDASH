@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
 import { activeOnly } from '../../lib/db'
+import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
 export default function UsersPage() {
@@ -72,6 +73,12 @@ export default function UsersPage() {
       return
     }
 
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'user_profiles', recordId: result.userId || null, action: 'create', performedBy: by,
+      summary: `Added user "${form.full_name}" (${form.email}) with role ${form.role}`,
+      newData: { email: form.email, full_name: form.full_name, role: form.role },
+    })
     setSaving(false)
     setUserAdded(true)
     setForm({ email: '', full_name: '', role: 'outlet_staff', location_id: '', password: '' })
@@ -79,21 +86,38 @@ export default function UsersPage() {
   }
 
   async function updateUserRole(userId, role) {
+    const prev = users.find(u => u.id === userId)
     await supabase.from('user_profiles').update({ role }).eq('id', userId)
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'user_profiles', recordId: userId, action: 'update', performedBy: by,
+      summary: `Changed role of "${prev?.full_name || userId}" from ${prev?.role} to ${role}`,
+      oldData: { role: prev?.role }, newData: { role },
+    })
     fetchAll()
   }
 
   async function updateUserLocation(userId, locationId) {
-    await supabase.from('user_profiles').update({
-      location_id: locationId || null
-    }).eq('id', userId)
+    const prev = users.find(u => u.id === userId)
+    await supabase.from('user_profiles').update({ location_id: locationId || null }).eq('id', userId)
+    const by = await getCurrentUserEmail(supabase)
+    const locName = locations.find(l => l.id === locationId)?.name || 'All locations'
+    await logAudit(supabase, {
+      table: 'user_profiles', recordId: userId, action: 'update', performedBy: by,
+      summary: `Updated location of "${prev?.full_name || userId}" to ${locName}`,
+      oldData: { location_id: prev?.location_id }, newData: { location_id: locationId || null },
+    })
     fetchAll()
   }
 
   async function toggleActive(user) {
-    await supabase.from('user_profiles').update({
-      is_active: !user.is_active
-    }).eq('id', user.id)
+    await supabase.from('user_profiles').update({ is_active: !user.is_active }).eq('id', user.id)
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'user_profiles', recordId: user.id,
+      action: user.is_active ? 'delete' : 'restore', performedBy: by,
+      summary: `${user.is_active ? 'Deactivated' : 'Reactivated'} user "${user.full_name}"`,
+    })
     fetchAll()
   }
 

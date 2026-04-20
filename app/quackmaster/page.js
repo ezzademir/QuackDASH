@@ -113,6 +113,11 @@ export default function QuackmasterPage() {
 
     setSavingStock(false)
     if (error) { alert('Error saving: ' + error.message); return }
+    await logAudit(supabase, {
+      table: 'qm_stock_levels', recordId: null, action: 'update', performedBy: who,
+      summary: `Updated Quackmaster stock levels for ${entries.length} item(s)`,
+      newData: Object.fromEntries(entries.map(([id, v]) => [items.find(i => i.id === id)?.name || id, parseFloat(v)])),
+    })
     setEdits({})
     fetchAll()
   }
@@ -138,6 +143,12 @@ export default function QuackmasterPage() {
     })
     setSavingLog(false)
     if (error) { alert('Error: ' + error.message); return }
+    const itemName = items.find(i => i.id === logForm.item_id)?.name || logForm.item_id
+    await logAudit(supabase, {
+      table: 'qm_production_logs', recordId: null, action: 'create', performedBy: user?.email || 'unknown',
+      summary: `Logged production for "${itemName}": planned ${planned}, actual ${actual}`,
+      newData: { item: itemName, planned_qty: planned, actual_qty: actual, note: logForm.note || null },
+    })
     setLogForm({ item_id: '', planned_qty: '', actual_qty: '', note: '' })
     fetchAll()
   }

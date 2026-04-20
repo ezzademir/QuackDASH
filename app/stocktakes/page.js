@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabase'
 import { activeOnly } from '../../lib/db'
+import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
 export default function StockTakesPage() {
@@ -83,6 +84,14 @@ export default function StockTakesPage() {
 
     await supabase.from('stock_take_items').insert(lineItems)
 
+    const by = await getCurrentUserEmail(supabase)
+    const locName = locations.find(l => l.id === form.location_id)?.name
+    await logAudit(supabase, {
+      table: 'stock_takes', recordId: take.id, action: 'create', performedBy: by,
+      summary: `Started stock take for ${locName}`,
+      newData: { location: locName, item_count: lineItems.length },
+    })
+
     setSaving(false)
     setShowForm(false)
     setForm({ location_id: '', notes: '' })
@@ -113,6 +122,12 @@ export default function StockTakesPage() {
       .from('stock_takes')
       .update({ status: 'pending_approval' })
       .eq('id', take.id)
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'stock_takes', recordId: take.id, action: 'update', performedBy: by,
+      summary: `Stock take for ${take.locations?.name} submitted for approval`,
+      oldData: { status: 'in_progress' }, newData: { status: 'pending_approval' },
+    })
     setSelectedTake({ ...take, status: 'pending_approval' })
     fetchAll()
   }
@@ -155,6 +170,13 @@ export default function StockTakesPage() {
       .update({ status: 'approved', approved_at: new Date().toISOString() })
       .eq('id', take.id)
 
+    const by = await getCurrentUserEmail(supabase)
+    const counted = (lines || []).length
+    await logAudit(supabase, {
+      table: 'stock_takes', recordId: take.id, action: 'update', performedBy: by,
+      summary: `Stock take for ${take.locations?.name} approved — ${counted} item(s) updated`,
+      oldData: { status: 'pending_approval' }, newData: { status: 'approved', items_updated: counted },
+    })
     setSelectedTake({ ...take, status: 'approved' })
     setApproving(false)
     fetchAll()
@@ -165,6 +187,12 @@ export default function StockTakesPage() {
       .from('stock_takes')
       .update({ status: 'rejected' })
       .eq('id', take.id)
+    const by = await getCurrentUserEmail(supabase)
+    await logAudit(supabase, {
+      table: 'stock_takes', recordId: take.id, action: 'update', performedBy: by,
+      summary: `Stock take for ${take.locations?.name} rejected`,
+      oldData: { status: 'pending_approval' }, newData: { status: 'rejected' },
+    })
     setSelectedTake({ ...take, status: 'rejected' })
     fetchAll()
   }

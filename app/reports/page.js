@@ -43,7 +43,9 @@ export default function ReportsPage() {
   async function fetchStockValue() {
     let query = supabase
       .from('inventory_levels')
-      .select('*, items(name, reorder_level, categories(name), units(abbreviation)), locations(name)')
+      .select('*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)')
+      .eq('items.is_active', true)
+      .is('items.deleted_at', null)
       .order('quantity', { ascending: false })
     if (filterLocation !== 'all') query = query.eq('location_id', filterLocation)
     const { data } = await query
@@ -111,7 +113,9 @@ export default function ReportsPage() {
   async function fetchLowStock() {
     let query = supabase
       .from('inventory_levels')
-      .select('*, items(name, reorder_level, categories(name), units(abbreviation)), locations(name)')
+      .select('*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)')
+      .eq('items.is_active', true)
+      .is('items.deleted_at', null)
     if (filterLocation !== 'all') query = query.eq('location_id', filterLocation)
     const { data } = await query
     const low = (data || []).filter(i => i.quantity <= (i.items?.reorder_level || 0))
