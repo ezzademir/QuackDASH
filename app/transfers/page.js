@@ -17,6 +17,7 @@ export default function TransfersPage() {
   const [transferItems, setTransferItems] = useState([])
   const [filterStatus, setFilterStatus] = useState('all')
   const [saving, setSaving] = useState(false)
+  const [isEditingTransfer, setIsEditingTransfer] = useState(false)
   const [form, setForm] = useState({
     from_location_id: '',
     to_location_id: '',
@@ -33,18 +34,24 @@ export default function TransfersPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [trx, loc, itm] = await Promise.all([
-      supabase
-        .from('stock_transfers')
-        .select('*, from_location:locations!stock_transfers_from_location_id_fkey(name), to_location:locations!stock_transfers_to_location_id_fkey(name)')
-        .order('requested_at', { ascending: false }),
-      activeOnly(supabase, 'locations', q => q.select('*').order('type')),
-      supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
-    ])
-    if (trx.data) setTransfers(trx.data)
-    if (loc.data) setLocations(loc.data)
-    if (itm.data) setItems(itm.data)
-    setLoading(false)
+    try {
+      const results = await Promise.allSettled([
+        supabase
+          .from('stock_transfers')
+          .select('*, from_location:locations!stock_transfers_from_location_id_fkey(name), to_location:locations!stock_transfers_to_location_id_fkey(name)')
+          .order('requested_at', { ascending: false }),
+        activeOnly(supabase, 'locations', q => q.select('*').order('type')),
+        supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
+      ])
+      const [trx, loc, itm] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
+      if (trx.data) setTransfers(trx.data)
+      if (loc.data) setLocations(loc.data)
+      if (itm.data) setItems(itm.data)
+    } catch (err) {
+      console.error('fetchAll failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   function subscribeToTransfers() {
@@ -65,105 +72,255 @@ export default function TransfersPage() {
   }
 
   async function createTransfer() {
-    if (!form.from_location_id || !form.to_location_id) return alert('Select both locations')
-    if (form.from_location_id === form.to_location_id) return alert('From and To cannot be the same location')
-    const validLines = lineItems.filter(l => l.item_id && l.requested_qty > 0)
-    if (validLines.length === 0) return alert('Add at least one item')
-    setSaving(true)
+    try {
+      if (!form.from_location_id || !form.to_location_id) return alert('Select both locations')
+      if (form.from_location_id === form.to_location_id) return alert('From and To cannot be the same location')
+      const validLines = lineItems.filter(l => l.item_id && l.requested_qty > 0)
+      if (validLines.length === 0) return alert('Add at least one item')
 
-    const { data: transfer, error } = await supabase
-      .from('stock_transfers')
-      .insert({
-        from_location_id: form.from_location_id,
-        to_location_id: form.to_location_id,
-        notes: form.notes,
-        status: 'requested',
+      setSaving(true)
+
+      // Validate source inventory exists and has sufficient quantities
+      for (const line of validLines) {
+        const { data: inv, error: invErr } = await supabase
+          .from('inventory_levels')
+          .select('*, items(name)')
+          .eq('location_id', form.from_location_id)
+          .eq('item_id', line.item_id)
+          .single()
+
+        if (!inv) {
+          throw new Error(`Item "${items.find(i => i.id === line.item_id)?.name || 'Unknown'}" not in source location`)
+        }
+        if (inv.quantity < parseFloat(line.requested_qty)) {
+          throw new Error(`Insufficient "${inv.items?.name}": need ${line.requested_qty}, have ${inv.quantity}`)
+        }
+      }
+
+      const { data: transfer, error } = await supabase
+        .from('stock_transfers')
+        .insert({
+          from_location_id: form.from_location_id,
+          to_location_id: form.to_location_id,
+          notes: form.notes,
+          status: 'requested',
+        })
+        .select()
+        .single()
+
+      if (error) throw new Error('Error creating transfer: ' + error.message)
+
+      const { error: lineErr } = await supabase.from('transfer_line_items').insert(
+        validLines.map(l => ({
+          transfer_id: transfer.id,
+          item_id: l.item_id,
+          requested_qty: parseFloat(l.requested_qty),
+        }))
+      )
+
+      if (lineErr) throw new Error('Error adding line items: ' + lineErr.message)
+
+      const by = await getCurrentUserEmail(supabase)
+      const fromLoc = locations.find(l => l.id === form.from_location_id)?.name
+      const toLoc = locations.find(l => l.id === form.to_location_id)?.name
+      await logAudit(supabase, {
+        table: 'stock_transfers', recordId: transfer.id, action: 'create', performedBy: by,
+        summary: `Created transfer ${transfer.transfer_number} from ${fromLoc} to ${toLoc}`,
+        newData: { from: fromLoc, to: toLoc, items: validLines.length, notes: form.notes },
       })
-      .select()
-      .single()
 
-    if (error) { alert('Error creating transfer'); setSaving(false); return }
+      setShowForm(false)
+      setForm({ from_location_id: '', to_location_id: '', notes: '' })
+      setLineItems([{ item_id: '', requested_qty: '' }])
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('createTransfer failed:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
 
-    await supabase.from('transfer_line_items').insert(
-      validLines.map(l => ({
-        transfer_id: transfer.id,
-        item_id: l.item_id,
-        requested_qty: parseFloat(l.requested_qty),
-      }))
-    )
-
-    const by = await getCurrentUserEmail(supabase)
-    const fromLoc = locations.find(l => l.id === form.from_location_id)?.name
-    const toLoc = locations.find(l => l.id === form.to_location_id)?.name
-    await logAudit(supabase, {
-      table: 'stock_transfers', recordId: transfer.id, action: 'create', performedBy: by,
-      summary: `Created transfer ${transfer.transfer_number} from ${fromLoc} to ${toLoc}`,
-      newData: { from: fromLoc, to: toLoc, items: validLines.length, notes: form.notes },
+  async function startEditTransfer(transfer) {
+    setIsEditingTransfer(true)
+    setForm({
+      from_location_id: transfer.from_location_id,
+      to_location_id: transfer.to_location_id,
+      notes: transfer.notes || '',
     })
+    // Fetch current line items for editing
+    const { data: lines } = await supabase
+      .from('transfer_line_items')
+      .select('*')
+      .eq('transfer_id', transfer.id)
+    if (lines) {
+      setLineItems(lines.map(l => ({ item_id: l.item_id, requested_qty: l.requested_qty })))
+    }
+  }
 
-    setSaving(false)
-    setShowForm(false)
-    setForm({ from_location_id: '', to_location_id: '', notes: '' })
-    setLineItems([{ item_id: '', requested_qty: '' }])
-    fetchAll()
+  async function saveTransferEdit(transfer) {
+    try {
+      if (!form.from_location_id || !form.to_location_id) return alert('Select both locations')
+      if (form.from_location_id === form.to_location_id) return alert('From and To cannot be the same location')
+      const validLines = lineItems.filter(l => l.item_id && l.requested_qty > 0)
+      if (validLines.length === 0) return alert('Add at least one item')
+
+      setSaving(true)
+
+      // Validate source inventory for new quantities
+      for (const line of validLines) {
+        const { data: inv } = await supabase
+          .from('inventory_levels')
+          .select('*')
+          .eq('location_id', form.from_location_id)
+          .eq('item_id', line.item_id)
+          .single()
+
+        if (!inv) {
+          throw new Error(`Item not in source location`)
+        }
+        if (inv.quantity < parseFloat(line.requested_qty)) {
+          throw new Error(`Insufficient inventory. Need ${line.requested_qty}, have ${inv.quantity}`)
+        }
+      }
+
+      // Update transfer header
+      const { error: updateErr } = await supabase
+        .from('stock_transfers')
+        .update({
+          from_location_id: form.from_location_id,
+          to_location_id: form.to_location_id,
+          notes: form.notes,
+        })
+        .eq('id', transfer.id)
+
+      if (updateErr) throw new Error(updateErr.message)
+
+      // Delete old line items
+      await supabase.from('transfer_line_items').delete().eq('transfer_id', transfer.id)
+
+      // Insert new line items
+      const { error: lineErr } = await supabase.from('transfer_line_items').insert(
+        validLines.map(l => ({
+          transfer_id: transfer.id,
+          item_id: l.item_id,
+          requested_qty: parseFloat(l.requested_qty),
+        }))
+      )
+
+      if (lineErr) throw new Error(lineErr.message)
+
+      const by = await getCurrentUserEmail(supabase)
+      await logAudit(supabase, {
+        table: 'stock_transfers', recordId: transfer.id, action: 'update', performedBy: by,
+        summary: `Edited transfer ${transfer.transfer_number}`,
+        oldData: { from: transfer.from_location_id, to: transfer.to_location_id, items: transferItems.length },
+        newData: { from: form.from_location_id, to: form.to_location_id, items: validLines.length },
+      })
+
+      setIsEditingTransfer(false)
+      fetchAll()
+      openTransfer(transfer)
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('saveTransferEdit failed:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function updateStatus(transfer, newStatus) {
-    const updates = { status: newStatus }
-    if (newStatus === 'approved') updates.approved_at = new Date().toISOString()
-    if (newStatus === 'received') {
-      updates.received_at = new Date().toISOString()
-      // Update inventory levels on receipt
-      const { data: lines } = await supabase
-        .from('transfer_line_items')
-        .select('*')
-        .eq('transfer_id', transfer.id)
+    try {
+      const updates = { status: newStatus }
+      if (newStatus === 'approved') updates.approved_at = new Date().toISOString()
 
-      for (const line of lines || []) {
-        const qty = line.sent_qty || line.requested_qty
-
-        // Deduct from source
-        const { data: fromInv } = await supabase
-          .from('inventory_levels')
+      if (newStatus === 'received') {
+        updates.received_at = new Date().toISOString()
+        // Update inventory levels on receipt
+        const { data: lines, error: lineErr } = await supabase
+          .from('transfer_line_items')
           .select('*')
-          .eq('location_id', transfer.from_location_id)
-          .eq('item_id', line.item_id)
-          .single()
+          .eq('transfer_id', transfer.id)
 
-        if (fromInv) {
-          await supabase.from('inventory_levels')
-            .update({ quantity: Math.max(0, fromInv.quantity - qty) })
-            .eq('id', fromInv.id)
+        if (lineErr) throw new Error(`Could not fetch transfer items: ${lineErr.message}`)
+
+        // Validate all source inventory exists and has sufficient quantity BEFORE any updates
+        for (const line of lines || []) {
+          const qty = line.sent_qty || line.requested_qty
+          const { data: fromInv, error: fromErr } = await supabase
+            .from('inventory_levels')
+            .select('*')
+            .eq('location_id', transfer.from_location_id)
+            .eq('item_id', line.item_id)
+            .single()
+
+          if (!fromInv) {
+            throw new Error(`Source location has no inventory for this item. Add ${qty} units to source location first.`)
+          }
+          if (fromInv.quantity < qty) {
+            throw new Error(`Insufficient inventory at source location. Need ${qty}, have ${fromInv.quantity}.`)
+          }
         }
 
-        // Add to destination
-        const { data: toInv } = await supabase
-          .from('inventory_levels')
-          .select('*')
-          .eq('location_id', transfer.to_location_id)
-          .eq('item_id', line.item_id)
-          .single()
+        // All validations passed, now perform inventory updates
+        for (const line of lines || []) {
+          const qty = line.sent_qty || line.requested_qty
 
-        if (toInv) {
-          await supabase.from('inventory_levels')
-            .update({ quantity: toInv.quantity + qty })
-            .eq('id', toInv.id)
-        } else {
-          await supabase.from('inventory_levels')
-            .insert({ location_id: transfer.to_location_id, item_id: line.item_id, quantity: qty })
+          // Deduct from source
+          const { data: fromInv, error: fromUpdateErr } = await supabase
+            .from('inventory_levels')
+            .select('*')
+            .eq('location_id', transfer.from_location_id)
+            .eq('item_id', line.item_id)
+            .single()
+
+          if (fromUpdateErr || !fromInv) {
+            throw new Error('Failed to locate source inventory for update')
+          }
+
+          const { error: deductErr } = await supabase.from('inventory_levels')
+            .update({ quantity: fromInv.quantity - qty })
+            .eq('id', fromInv.id)
+
+          if (deductErr) throw new Error(`Failed to deduct from source: ${deductErr.message}`)
+
+          // Add to destination
+          const { data: toInv, error: toErr } = await supabase
+            .from('inventory_levels')
+            .select('*')
+            .eq('location_id', transfer.to_location_id)
+            .eq('item_id', line.item_id)
+            .single()
+
+          if (toInv) {
+            const { error: addErr } = await supabase.from('inventory_levels')
+              .update({ quantity: toInv.quantity + qty })
+              .eq('id', toInv.id)
+            if (addErr) throw new Error(`Failed to add to destination: ${addErr.message}`)
+          } else {
+            const { error: insertErr } = await supabase.from('inventory_levels')
+              .insert({ location_id: transfer.to_location_id, item_id: line.item_id, quantity: qty })
+            if (insertErr) throw new Error(`Failed to create inventory at destination: ${insertErr.message}`)
+          }
         }
       }
+
+      const { error: updateErr } = await supabase.from('stock_transfers').update(updates).eq('id', transfer.id)
+      if (updateErr) throw new Error(`Failed to update transfer status: ${updateErr.message}`)
+
+      const by = await getCurrentUserEmail(supabase)
+      await logAudit(supabase, {
+        table: 'stock_transfers', recordId: transfer.id, action: 'update', performedBy: by,
+        summary: `Transfer ${transfer.transfer_number} status changed to ${newStatus}`,
+        oldData: { status: transfer.status },
+        newData: { status: newStatus },
+      })
+      setSelectedTransfer({ ...transfer, status: newStatus })
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('updateStatus failed:', err)
     }
-    await supabase.from('stock_transfers').update(updates).eq('id', transfer.id)
-    const by = await getCurrentUserEmail(supabase)
-    await logAudit(supabase, {
-      table: 'stock_transfers', recordId: transfer.id, action: 'update', performedBy: by,
-      summary: `Transfer ${transfer.transfer_number} status changed to ${newStatus}`,
-      oldData: { status: transfer.status },
-      newData: { status: newStatus },
-    })
-    setSelectedTransfer({ ...transfer, status: newStatus })
-    fetchAll()
   }
 
   function addLineItem() {
@@ -325,21 +482,35 @@ export default function TransfersPage() {
                     </div>
                   </div>
 
-                  {/* Action button */}
-                  {nextStatus[selectedTransfer.status] && (
+                  {/* Action buttons */}
+                  {selectedTransfer.status === 'requested' && (
+                    <div className="space-y-2 border-t border-gray-100 pt-4">
+                      <button
+                        onClick={() => startEditTransfer(selectedTransfer)}
+                        className="w-full border border-blue-200 text-blue-600 text-sm font-medium py-2.5 rounded-lg hover:bg-blue-50 transition-colors"
+                      >
+                        Edit transfer
+                      </button>
+                      <button
+                        onClick={() => updateStatus(selectedTransfer, 'approved')}
+                        className="w-full bg-yellow-400 text-gray-900 text-sm font-bold py-2.5 rounded-lg hover:bg-yellow-300 transition-colors"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => updateStatus(selectedTransfer, 'cancelled')}
+                        className="w-full border border-gray-200 text-gray-500 text-sm py-2 rounded-lg hover:bg-gray-50"
+                      >
+                        Cancel transfer
+                      </button>
+                    </div>
+                  )}
+                  {nextStatus[selectedTransfer.status] && selectedTransfer.status !== 'requested' && (
                     <button
                       onClick={() => updateStatus(selectedTransfer, nextStatus[selectedTransfer.status].status)}
                       className="w-full bg-yellow-400 text-gray-900 text-sm font-bold py-2.5 rounded-lg hover:bg-yellow-300 transition-colors"
                     >
                       {nextStatus[selectedTransfer.status].label}
-                    </button>
-                  )}
-                  {selectedTransfer.status === 'requested' && (
-                    <button
-                      onClick={() => updateStatus(selectedTransfer, 'cancelled')}
-                      className="w-full border border-gray-200 text-gray-500 text-sm py-2 rounded-lg hover:bg-gray-50"
-                    >
-                      Cancel transfer
                     </button>
                   )}
                 </div>
@@ -353,13 +524,13 @@ export default function TransfersPage() {
         </div>
       </div>
 
-      {/* New Transfer Modal */}
-      {showForm && (
+      {/* Transfer Modal (Create or Edit) */}
+      {(showForm || isEditingTransfer) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
-              <h2 className="font-bold text-gray-900">New stock transfer</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <h2 className="font-bold text-gray-900">{isEditingTransfer ? 'Edit stock transfer' : 'New stock transfer'}</h2>
+              <button onClick={() => { setShowForm(false); setIsEditingTransfer(false); }} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
             </div>
             <div className="px-6 py-5 space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -437,18 +608,28 @@ export default function TransfersPage() {
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex gap-3 sticky bottom-0 bg-white">
               <button
-                onClick={() => setShowForm(false)}
+                onClick={() => { setShowForm(false); setIsEditingTransfer(false); }}
                 className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
-              <button
-                onClick={createTransfer}
-                disabled={saving}
-                className="flex-1 bg-yellow-400 text-gray-900 text-sm font-bold py-2.5 rounded-lg hover:bg-yellow-300 disabled:opacity-50"
-              >
-                {saving ? 'Creating...' : 'Create transfer'}
-              </button>
+              {isEditingTransfer ? (
+                <button
+                  onClick={() => saveTransferEdit(selectedTransfer)}
+                  disabled={saving}
+                  className="flex-1 bg-blue-500 text-white text-sm font-bold py-2.5 rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Save changes'}
+                </button>
+              ) : (
+                <button
+                  onClick={createTransfer}
+                  disabled={saving}
+                  className="flex-1 bg-yellow-400 text-gray-900 text-sm font-bold py-2.5 rounded-lg hover:bg-yellow-300 disabled:opacity-50"
+                >
+                  {saving ? 'Creating...' : 'Create transfer'}
+                </button>
+              )}
             </div>
           </div>
         </div>

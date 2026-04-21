@@ -25,18 +25,24 @@ export default function StockTakesPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [st, loc, itm] = await Promise.all([
-      supabase
-        .from('stock_takes')
-        .select('*, locations(name)')
-        .order('started_at', { ascending: false }),
-      activeOnly(supabase, 'locations', q => q.select('*').order('name')),
-      supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
-    ])
-    if (st.data) setStockTakes(st.data)
-    if (loc.data) setLocations(loc.data)
-    if (itm.data) setItems(itm.data)
-    setLoading(false)
+    try {
+      const results = await Promise.allSettled([
+        supabase
+          .from('stock_takes')
+          .select('*, locations(name)')
+          .order('started_at', { ascending: false }),
+        activeOnly(supabase, 'locations', q => q.select('*').order('name')),
+        supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
+      ])
+      const [st, loc, itm] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
+      if (st.data) setStockTakes(st.data)
+      if (loc.data) setLocations(loc.data)
+      if (itm.data) setItems(itm.data)
+    } catch (err) {
+      console.error('fetchAll failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function openStockTake(take) {
@@ -134,67 +140,77 @@ export default function StockTakesPage() {
 
   async function approveTake(take) {
     setApproving(true)
-    // Apply counted quantities to inventory levels
-    const { data: lines } = await supabase
-      .from('stock_take_items')
-      .select('*')
-      .eq('stock_take_id', take.id)
-      .not('counted_qty', 'is', null)
-
-    for (const line of lines || []) {
-      const { data: existing } = await supabase
-        .from('inventory_levels')
+    try {
+      // Apply counted quantities to inventory levels using upsert for atomicity
+      const { data: lines, error: lineErr } = await supabase
+        .from('stock_take_items')
         .select('*')
-        .eq('location_id', take.location_id)
-        .eq('item_id', line.item_id)
-        .single()
+        .eq('stock_take_id', take.id)
+        .not('counted_qty', 'is', null)
 
-      if (existing) {
-        await supabase
+      if (lineErr) throw new Error(`Could not fetch stock take items: ${lineErr.message}`)
+
+      // Use upsert to avoid race conditions: update if exists, insert if not
+      const upsertPayload = (lines || []).map(line => ({
+        location_id: take.location_id,
+        item_id: line.item_id,
+        quantity: line.counted_qty,
+      }))
+
+      if (upsertPayload.length > 0) {
+        const { error: upsertErr } = await supabase
           .from('inventory_levels')
-          .update({ quantity: line.counted_qty })
-          .eq('id', existing.id)
-      } else {
-        await supabase
-          .from('inventory_levels')
-          .insert({
-            location_id: take.location_id,
-            item_id: line.item_id,
-            quantity: line.counted_qty,
-          })
+          .upsert(upsertPayload, { onConflict: 'location_id,item_id' })
+
+        if (upsertErr) throw new Error(`Failed to update inventory: ${upsertErr.message}`)
       }
+
+      const { error: updateErr } = await supabase
+        .from('stock_takes')
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
+        .eq('id', take.id)
+
+      if (updateErr) throw new Error(`Failed to approve stock take: ${updateErr.message}`)
+
+      const by = await getCurrentUserEmail(supabase)
+      const counted = (lines || []).length
+      await logAudit(supabase, {
+        table: 'stock_takes', recordId: take.id, action: 'update', performedBy: by,
+        summary: `Stock take for ${take.locations?.name} approved — ${counted} item(s) updated`,
+        oldData: { status: 'pending_approval' }, newData: { status: 'approved', items_updated: counted },
+      })
+      setSelectedTake({ ...take, status: 'approved' })
+      fetchAll()
+    } catch (err) {
+      alert('Error approving stock take: ' + err.message)
+      console.error('approveTake failed:', err)
+    } finally {
+      setApproving(false)
     }
-
-    await supabase
-      .from('stock_takes')
-      .update({ status: 'approved', approved_at: new Date().toISOString() })
-      .eq('id', take.id)
-
-    const by = await getCurrentUserEmail(supabase)
-    const counted = (lines || []).length
-    await logAudit(supabase, {
-      table: 'stock_takes', recordId: take.id, action: 'update', performedBy: by,
-      summary: `Stock take for ${take.locations?.name} approved — ${counted} item(s) updated`,
-      oldData: { status: 'pending_approval' }, newData: { status: 'approved', items_updated: counted },
-    })
-    setSelectedTake({ ...take, status: 'approved' })
-    setApproving(false)
-    fetchAll()
   }
 
   async function rejectTake(take) {
-    await supabase
-      .from('stock_takes')
-      .update({ status: 'rejected' })
-      .eq('id', take.id)
-    const by = await getCurrentUserEmail(supabase)
-    await logAudit(supabase, {
-      table: 'stock_takes', recordId: take.id, action: 'update', performedBy: by,
-      summary: `Stock take for ${take.locations?.name} rejected`,
-      oldData: { status: 'pending_approval' }, newData: { status: 'rejected' },
-    })
-    setSelectedTake({ ...take, status: 'rejected' })
-    fetchAll()
+    try {
+      // Reset to in_progress to allow recounting
+      const { error } = await supabase
+        .from('stock_takes')
+        .update({ status: 'in_progress' })
+        .eq('id', take.id)
+
+      if (error) throw new Error(`Failed to reset stock take: ${error.message}`)
+
+      const by = await getCurrentUserEmail(supabase)
+      await logAudit(supabase, {
+        table: 'stock_takes', recordId: take.id, action: 'update', performedBy: by,
+        summary: `Stock take for ${take.locations?.name} rejected and reset for recounting`,
+        oldData: { status: 'pending_approval' }, newData: { status: 'in_progress' },
+      })
+      setSelectedTake({ ...take, status: 'in_progress' })
+      fetchAll()
+    } catch (err) {
+      alert('Error rejecting stock take: ' + err.message)
+      console.error('rejectTake failed:', err)
+    }
   }
 
   const filtered = filterStatus === 'all'

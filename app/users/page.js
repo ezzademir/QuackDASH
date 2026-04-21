@@ -38,13 +38,19 @@ export default function UsersPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [usr, loc] = await Promise.all([
-      supabase.from('user_profiles').select('*, locations(name)').order('created_at', { ascending: false }),
-      activeOnly(supabase, 'locations', q => q.select('*').order('name')),
-    ])
-    if (usr.data) setUsers(usr.data)
-    if (loc.data) setLocations(loc.data)
-    setLoading(false)
+    try {
+      const results = await Promise.allSettled([
+        supabase.from('user_profiles').select('*, locations(name)').order('created_at', { ascending: false }),
+        activeOnly(supabase, 'locations', q => q.select('*').order('name')),
+      ])
+      const [usr, loc] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
+      if (usr.data) setUsers(usr.data)
+      if (loc.data) setLocations(loc.data)
+    } catch (err) {
+      console.error('fetchAll failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function addUser() {

@@ -75,6 +75,9 @@ export default function Dashboard() {
     i.items?.is_active !== false && i.items?.deleted_at == null
   )
 
+  // Filter to only active locations
+  const activeLocations = locations.filter(l => l.is_active !== false)
+
   const filteredInventory = activeLocation === 'all'
     ? activeInventory
     : activeInventory.filter(i => i.location_id === activeLocation)
@@ -176,9 +179,9 @@ export default function Dashboard() {
         {/* Stat Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Locations</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">{locations.length}</p>
-            <p className="text-xs text-gray-400 mt-1">1 kitchen + {locations.length - 1} outlets</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Active locations</p>
+            <p className="text-3xl font-bold text-gray-900 mt-1">{activeLocations.length}</p>
+            <p className="text-xs text-gray-400 mt-1">{activeLocations.filter(l => l.type === 'central_kitchen').length} kitchen + {activeLocations.filter(l => l.type === 'outlet').length} outlets</p>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
             <p className="text-xs text-gray-500 uppercase tracking-wide">Items tracked</p>
@@ -219,7 +222,7 @@ export default function Dashboard() {
               >
                 All
               </button>
-              {locations.map(loc => (
+              {activeLocations.map(loc => (
                 <button
                   key={loc.id}
                   onClick={() => setActiveLocation(loc.id)}
@@ -275,7 +278,7 @@ export default function Dashboard() {
                 <h2 className="font-semibold text-gray-900">Locations</h2>
               </div>
               <div className="p-5 space-y-2">
-                {locations.map((loc, i) => {
+                {activeLocations.map((loc, i) => {
                   const locInventory = inventory.filter(inv => inv.location_id === loc.id)
                   const locLowStock = locInventory.filter(inv => inv.quantity <= (inv.items?.reorder_level || 0))
                   return (

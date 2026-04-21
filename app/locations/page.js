@@ -83,6 +83,20 @@ export default function LocationsPage() {
     fetchLocations()
   }
 
+  async function toggleActive(loc) {
+    const by = await getCurrentUserEmail(supabase)
+    const newActive = !loc.is_active
+    const { error } = await supabase
+      .from('locations').update({ is_active: newActive }).eq('id', loc.id)
+    if (error) { alert('Error: ' + error.message); return }
+    await logAudit(supabase, {
+      table: 'locations', recordId: loc.id,
+      action: newActive ? 'restore' : 'delete', performedBy: by,
+      summary: `${newActive ? 'Reactivated' : 'Deactivated'} location "${loc.name}"`,
+    })
+    fetchLocations()
+  }
+
   async function deleteLocation(loc) {
     if (!confirm(`Delete "${loc.name}"?\n\nThe location will be hidden but all linked data (inventory, transfers, deliveries) is preserved and visible in the audit log.`)) return
     setDeleting(loc.id)
@@ -150,13 +164,13 @@ export default function LocationsPage() {
         {/* Summary */}
         <div className="grid grid-cols-2 gap-4 mb-6">
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Total locations</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">{locations.length}</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Active locations</p>
+            <p className="text-3xl font-bold text-gray-900 mt-1">{locations.filter(l => l.is_active !== false).length}</p>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
             <p className="text-xs text-gray-500 uppercase tracking-wide">Outlets</p>
             <p className="text-3xl font-bold text-gray-900 mt-1">
-              {locations.filter(l => l.type === 'outlet').length}
+              {locations.filter(l => l.type === 'outlet' && l.is_active !== false).length}
             </p>
           </div>
         </div>
@@ -195,6 +209,16 @@ export default function LocationsPage() {
                       className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                       Edit
+                    </button>
+                    <button
+                      onClick={() => toggleActive(loc)}
+                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                        loc.is_active !== false
+                          ? 'border-yellow-100 text-yellow-600 hover:bg-yellow-50'
+                          : 'border-green-100 text-green-600 hover:bg-green-50'
+                      }`}
+                    >
+                      {loc.is_active !== false ? 'Deactivate' : 'Reactivate'}
                     </button>
                     <button
                       onClick={() => deleteLocation(loc)}

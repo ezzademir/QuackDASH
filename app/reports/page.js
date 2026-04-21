@@ -31,13 +31,34 @@ export default function ReportsPage() {
     setLoading(true)
     setData([])
 
-    if (activeReport === 'stock_value') await fetchStockValue()
-    if (activeReport === 'transfer_history') await fetchTransferHistory()
-    if (activeReport === 'variance') await fetchVariance()
-    if (activeReport === 'delivery') await fetchDelivery()
-    if (activeReport === 'low_stock') await fetchLowStock()
+    try {
+      // Validate date range for date-dependent reports
+      if (['transfer_history', 'variance', 'delivery'].includes(activeReport)) {
+        if (dateFrom && dateTo) {
+          const from = new Date(dateFrom)
+          const to = new Date(dateTo)
+          if (from > to) {
+            throw new Error('Start date cannot be after end date')
+          }
+          // Warning: More than 1 year range
+          const daysRange = (to - from) / (1000 * 60 * 60 * 24)
+          if (daysRange > 365) {
+            console.warn('Date range exceeds 365 days, performance may be affected')
+          }
+        }
+      }
 
-    setLoading(false)
+      if (activeReport === 'stock_value') await fetchStockValue()
+      if (activeReport === 'transfer_history') await fetchTransferHistory()
+      if (activeReport === 'variance') await fetchVariance()
+      if (activeReport === 'delivery') await fetchDelivery()
+      if (activeReport === 'low_stock') await fetchLowStock()
+    } catch (err) {
+      console.error('fetchReport failed:', err)
+      setData([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function fetchStockValue() {

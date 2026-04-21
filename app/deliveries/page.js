@@ -27,25 +27,33 @@ export default function DeliveriesPage() {
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', phone: '', email: '' })
   const [invoiceFile, setInvoiceFile] = useState(null)
   const [uploadingInvoice, setUploadingInvoice] = useState(false)
+  const [showDisputeForm, setShowDisputeForm] = useState(false)
+  const [disputeReason, setDisputeReason] = useState('')
 
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
     setLoading(true)
-    const [del, loc, sup, itm] = await Promise.all([
-      supabase
-        .from('delivery_orders')
-        .select('*, locations(name), suppliers(name)')
-        .order('created_at', { ascending: false }),
-      activeOnly(supabase, 'locations', q => q.select('*').order('name')),
-      activeOnly(supabase, 'suppliers', q => q.select('*').order('name')),
-      supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
-    ])
-    if (del.data) setDeliveries(del.data)
-    if (loc.data) setLocations(loc.data)
-    if (sup.data) setSuppliers(sup.data)
-    if (itm.data) setItems(itm.data)
-    setLoading(false)
+    try {
+      const results = await Promise.allSettled([
+        supabase
+          .from('delivery_orders')
+          .select('*, locations(name), suppliers(name)')
+          .order('created_at', { ascending: false }),
+        activeOnly(supabase, 'locations', q => q.select('*').order('name')),
+        activeOnly(supabase, 'suppliers', q => q.select('*').order('name')),
+        supabase.from('items').select('*, units(abbreviation)').eq('is_active', true).order('name'),
+      ])
+      const [del, loc, sup, itm] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
+      if (del.data) setDeliveries(del.data)
+      if (loc.data) setLocations(loc.data)
+      if (sup.data) setSuppliers(sup.data)
+      if (itm.data) setItems(itm.data)
+    } catch (err) {
+      console.error('fetchAll failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function openDO(delivery) {
@@ -59,48 +67,60 @@ export default function DeliveriesPage() {
   }
 
   async function createDO() {
-    if (!form.do_number.trim()) return alert('DO number is required')
-    if (!form.location_id) return alert('Select a location')
-    const validLines = lineItems.filter(l => l.item_id && l.expected_qty > 0)
-    if (validLines.length === 0) return alert('Add at least one item')
-    setSaving(true)
+    try {
+      if (!form.do_number.trim()) return alert('DO number is required')
+      if (!form.location_id) return alert('Select a location')
+      const validLines = lineItems.filter(l => l.item_id && l.expected_qty > 0)
+      if (validLines.length === 0) return alert('Add at least one item')
 
-    const { data: doData, error } = await supabase
-      .from('delivery_orders')
-      .insert({
-        do_number: form.do_number.trim(),
-        location_id: form.location_id,
-        supplier_id: form.supplier_id || null,
-        expected_date: form.expected_date || null,
-        notes: form.notes,
-        status: 'pending',
+      // Validate date if provided
+      if (form.expected_date) {
+        const expectedDate = new Date(form.expected_date)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        if (expectedDate < today) {
+          return alert('Expected date cannot be in the past')
+        }
+      }
+
+      setSaving(true)
+
+      const { data: doData, error } = await supabase
+        .from('delivery_orders')
+        .insert({
+          do_number: form.do_number.trim(),
+          location_id: form.location_id,
+          supplier_id: form.supplier_id || null,
+          expected_date: form.expected_date || null,
+          notes: form.notes,
+          status: 'pending',
+        })
+        .select()
+        .single()
+
+      if (error) {
+        throw new Error(error.message.includes('unique') ? 'DO number already exists' : error.message)
+      }
+
+      const { error: lineErr } = await supabase.from('do_line_items').insert(
+        validLines.map(l => ({
+          do_id: doData.id,
+          item_id: l.item_id,
+          expected_qty: parseFloat(l.expected_qty),
+          unit_price: parseFloat(l.unit_price) || null,
+        }))
+      )
+
+      if (lineErr) throw new Error('Error adding line items: ' + lineErr.message)
+
+      const by = await getCurrentUserEmail(supabase)
+      const locName = locations.find(l => l.id === form.location_id)?.name
+      const supName = suppliers.find(s => s.id === form.supplier_id)?.name
+      await logAudit(supabase, {
+        table: 'delivery_orders', recordId: doData.id, action: 'create', performedBy: by,
+        summary: `Created delivery order ${form.do_number} for ${locName}${supName ? ' from ' + supName : ''}`,
+        newData: { do_number: form.do_number, location: locName, supplier: supName, items: validLines.length },
       })
-      .select()
-      .single()
-
-    if (error) {
-      alert(error.message.includes('unique') ? 'DO number already exists' : 'Error creating DO')
-      setSaving(false)
-      return
-    }
-
-    await supabase.from('do_line_items').insert(
-      validLines.map(l => ({
-        do_id: doData.id,
-        item_id: l.item_id,
-        expected_qty: parseFloat(l.expected_qty),
-        unit_price: parseFloat(l.unit_price) || null,
-      }))
-    )
-
-    const by = await getCurrentUserEmail(supabase)
-    const locName = locations.find(l => l.id === form.location_id)?.name
-    const supName = suppliers.find(s => s.id === form.supplier_id)?.name
-    await logAudit(supabase, {
-      table: 'delivery_orders', recordId: doData.id, action: 'create', performedBy: by,
-      summary: `Created delivery order ${form.do_number} for ${locName}${supName ? ' from ' + supName : ''}`,
-      newData: { do_number: form.do_number, location: locName, supplier: supName, items: validLines.length },
-    })
 
     setSaving(false)
     setShowForm(false)
@@ -180,38 +200,97 @@ export default function DeliveriesPage() {
     fetchAll()
   }
 
-  async function uploadInvoice(delivery) {
-    if (!invoiceFile) return alert('Select an invoice file first')
-    setUploadingInvoice(true)
+  async function disputeDelivery(delivery) {
+    try {
+      if (!disputeReason.trim()) return alert('Please provide a reason for the dispute')
 
-    const fileExt = invoiceFile.name.split('.').pop()
-    const fileName = `invoices/${delivery.id}-${Date.now()}.${fileExt}`
+      const { error } = await supabase
+        .from('delivery_orders')
+        .update({ status: 'disputed', notes: (delivery.notes || '') + `\n[DISPUTED: ${disputeReason}]` })
+        .eq('id', delivery.id)
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('invoices')
-      .upload(fileName, invoiceFile)
+      if (error) throw new Error(error.message)
 
-    if (uploadError) {
-      alert('Upload failed — make sure the invoices bucket exists in Supabase Storage')
-      setUploadingInvoice(false)
-      return
+      const by = await getCurrentUserEmail(supabase)
+      await logAudit(supabase, {
+        table: 'delivery_orders', recordId: delivery.id, action: 'update', performedBy: by,
+        summary: `Disputed delivery ${delivery.do_number}: ${disputeReason}`,
+        oldData: { status: delivery.status },
+        newData: { status: 'disputed', dispute_reason: disputeReason },
+      })
+
+      setShowDisputeForm(false)
+      setDisputeReason('')
+      setSelectedDO({ ...delivery, status: 'disputed' })
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('disputeDelivery failed:', err)
     }
+  }
 
-    const { data: { publicUrl } } = supabase.storage
-      .from('invoices')
-      .getPublicUrl(fileName)
+  async function uploadInvoice(delivery) {
+    try {
+      if (!invoiceFile) return alert('Select an invoice file first')
 
-    await supabase.from('invoices').insert({
-      invoice_number: `INV-${delivery.do_number}`,
-      do_id: delivery.id,
-      supplier_id: delivery.supplier_id,
-      photo_url: publicUrl,
-      status: 'matched',
-    })
+      // Validate file size (max 10MB)
+      const MAX_FILE_SIZE = 10 * 1024 * 1024
+      if (invoiceFile.size > MAX_FILE_SIZE) {
+        return alert('File too large. Maximum size is 10MB.')
+      }
 
-    setInvoiceFile(null)
-    setUploadingInvoice(false)
-    alert('Invoice uploaded and matched successfully')
+      // Validate file type (images and PDFs only)
+      const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+      if (!ALLOWED_TYPES.includes(invoiceFile.type)) {
+        return alert('Invalid file type. Accepted formats: JPEG, PNG, WebP, PDF')
+      }
+
+      setUploadingInvoice(true)
+
+      const fileExt = invoiceFile.name.split('.').pop()
+      const fileName = `invoices/${delivery.id}-${Date.now()}.${fileExt}`
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('invoices')
+        .upload(fileName, invoiceFile)
+
+      if (uploadError) {
+        if (uploadError.message.includes('not found')) {
+          throw new Error('Invoices storage bucket not found. Please ask an admin to create the "invoices" bucket in Supabase Storage.')
+        }
+        throw new Error(`Upload failed: ${uploadError.message}`)
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('invoices')
+        .getPublicUrl(fileName)
+
+      const { error: insertErr } = await supabase.from('invoices').insert({
+        invoice_number: `INV-${delivery.do_number}`,
+        do_id: delivery.id,
+        supplier_id: delivery.supplier_id,
+        photo_url: publicUrl,
+        status: 'matched',
+      })
+
+      if (insertErr) throw new Error(`Failed to record invoice: ${insertErr.message}`)
+
+      const by = await getCurrentUserEmail(supabase)
+      await logAudit(supabase, {
+        table: 'invoices', recordId: null, action: 'create', performedBy: by,
+        summary: `Uploaded invoice for delivery order ${delivery.do_number}`,
+        newData: { do_number: delivery.do_number, file_name: fileName },
+      })
+
+      setInvoiceFile(null)
+      alert('Invoice uploaded successfully')
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('uploadInvoice failed:', err)
+    } finally {
+      setUploadingInvoice(false)
+    }
   }
 
   async function saveSupplier() {
@@ -465,9 +544,27 @@ export default function DeliveriesPage() {
                       Confirm receipt &amp; update inventory
                     </button>
                   )}
-                  {(selectedDO.status === 'received' || selectedDO.status === 'partial') && (
-                    <div className={`text-sm text-center py-2.5 rounded-lg font-medium ${selectedDO.status === 'received' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
-                      {selectedDO.status === 'received' ? 'Inventory updated — no variances' : `Received with ${varianceItems.length} variance(s)`}
+                  {selectedDO.status === 'received' && (
+                    <div className="bg-green-50 text-green-700 text-sm text-center py-2.5 rounded-lg font-medium">
+                      Inventory updated — no variances
+                    </div>
+                  )}
+                  {selectedDO.status === 'partial' && (
+                    <div className="space-y-2">
+                      <div className="bg-orange-50 text-orange-700 text-sm text-center py-2.5 rounded-lg font-medium">
+                        Received with {varianceItems.length} variance(s)
+                      </div>
+                      <button
+                        onClick={() => setShowDisputeForm(true)}
+                        className="w-full border border-red-200 text-red-600 text-sm font-medium py-2.5 rounded-lg hover:bg-red-50 transition-colors"
+                      >
+                        Dispute delivery
+                      </button>
+                    </div>
+                  )}
+                  {selectedDO.status === 'disputed' && (
+                    <div className="bg-red-50 text-red-700 text-sm text-center py-2.5 rounded-lg font-medium">
+                      Delivery disputed — awaiting resolution
                     </div>
                   )}
                 </div>
@@ -676,6 +773,49 @@ export default function DeliveriesPage() {
                 className="flex-1 bg-yellow-400 text-gray-900 text-sm font-bold py-2.5 rounded-lg hover:bg-yellow-300"
               >
                 Save supplier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dispute Delivery Modal */}
+      {showDisputeForm && selectedDO && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-bold text-gray-900">Dispute delivery</h2>
+              <button onClick={() => { setShowDisputeForm(false); setDisputeReason('') }} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-3">
+                  <strong>{selectedDO.do_number}</strong> — Reporting {varianceItems.length} variance(s)
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason for dispute *</label>
+                <textarea
+                  value={disputeReason}
+                  onChange={e => setDisputeReason(e.target.value)}
+                  placeholder="e.g. Received damaged items, incorrect quantities, missing items..."
+                  rows={4}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
+              <button
+                onClick={() => { setShowDisputeForm(false); setDisputeReason('') }}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => disputeDelivery(selectedDO)}
+                className="flex-1 bg-red-500 text-white text-sm font-bold py-2.5 rounded-lg hover:bg-red-600"
+              >
+                Mark disputed
               </button>
             </div>
           </div>

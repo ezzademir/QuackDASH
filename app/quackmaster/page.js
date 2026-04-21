@@ -45,18 +45,24 @@ export default function QuackmasterPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [it, st, lg] = await Promise.all([
-      activeOnly(supabase, 'qm_production_items', q => q.select('*').order('name')),
-      supabase.from('qm_stock_levels').select('*'),
-      supabase.from('qm_production_logs')
-        .select('*, qm_production_items(name, unit)')
-        .order('logged_at', { ascending: false })
-        .limit(30),
-    ])
-    if (it.data) setItems(it.data)
-    if (st.data) setStock(st.data)
-    if (lg.data) setLogs(lg.data)
-    setLoading(false)
+    try {
+      const results = await Promise.allSettled([
+        activeOnly(supabase, 'qm_production_items', q => q.select('*').order('name')),
+        supabase.from('qm_stock_levels').select('*'),
+        supabase.from('qm_production_logs')
+          .select('*, qm_production_items(name, unit)')
+          .order('logged_at', { ascending: false })
+          .limit(30),
+      ])
+      const [it, st, lg] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
+      if (it.data) setItems(it.data)
+      if (st.data) setStock(st.data)
+      if (lg.data) setLogs(lg.data)
+    } catch (err) {
+      console.error('fetchAll failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Merge items + their latest stock row
@@ -249,6 +255,35 @@ export default function QuackmasterPage() {
     })
     setDeletingItem(null)
     fetchAll()
+  }
+
+  async function updateSchedule(item, day) {
+    try {
+      const currentDays = item.schedule_days || []
+      const newDays = currentDays.includes(day)
+        ? currentDays.filter(d => d !== day)
+        : [...currentDays, day].sort()
+
+      const { error } = await supabase
+        .from('qm_production_items')
+        .update({ schedule_days: newDays })
+        .eq('id', item.id)
+
+      if (error) throw new Error(error.message)
+
+      const by = await getCurrentUserEmail(supabase)
+      await logAudit(supabase, {
+        table: 'qm_production_items', recordId: item.id, action: 'update', performedBy: by,
+        summary: `Updated schedule for "${item.name}": ${newDays.join(', ') || 'no days'}`,
+        oldData: { schedule_days: currentDays },
+        newData: { schedule_days: newDays },
+      })
+
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('updateSchedule failed:', err)
+    }
   }
 
   // --------------------------------------------------------
@@ -538,15 +573,24 @@ export default function QuackmasterPage() {
                       {DAYS.map(d => {
                         const on    = (i.schedule_days || []).includes(d)
                         const today = d === todayShort
-                        const base  = 'w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold border'
+                        const base  = 'w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold border cursor-pointer transition-all hover:ring-2'
                         const style = today && on
                           ? 'bg-yellow-400 text-gray-900 border-yellow-400 ring-2 ring-yellow-200'
                           : on
-                            ? 'bg-gray-900 text-white border-gray-900'
+                            ? 'bg-gray-900 text-white border-gray-900 hover:ring-gray-700'
                             : today
-                              ? 'bg-white text-gray-900 border-yellow-400'
-                              : 'bg-gray-50 text-gray-400 border-gray-100'
-                        return <div key={d} className={`${base} ${style}`}>{d[0]}</div>
+                              ? 'bg-white text-gray-900 border-yellow-400 hover:ring-yellow-300'
+                              : 'bg-gray-50 text-gray-400 border-gray-100 hover:bg-gray-100'
+                        return (
+                          <button
+                            key={d}
+                            onClick={() => updateSchedule(i, d)}
+                            className={`${base} ${style}`}
+                            title={`Toggle ${d}`}
+                          >
+                            {d[0]}
+                          </button>
+                        )
                       })}
                     </div>
                   </div>
