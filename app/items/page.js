@@ -56,8 +56,8 @@ export default function ItemsPage() {
     setForm({
       name: item.name,
       sku: item.sku || '',
-      category_id: item.category_id || '',
-      unit_id: item.unit_id || '',
+      category_id: item.category_id ? String(item.category_id) : '',
+      unit_id: item.unit_id ? String(item.unit_id) : '',
       reorder_level: item.reorder_level || 0,
     })
     setShowForm(true)
