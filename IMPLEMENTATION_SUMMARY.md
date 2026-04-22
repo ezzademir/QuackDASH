@@ -64,11 +64,11 @@ Comprehensive testing, bug fixes, and feature enhancements have been implemented
 
 ### 2.2 Date Validations
 **Files:** 
-- `app/deliveries/page.js` - `createDO()` function
+- `app/procurement/page.js` - `createDO()` function
 - `app/reports/page.js` - `fetchReport()` function
 
 **Changes:**
-- Deliveries: Expected date cannot be in the past
+- Procurement: Expected date cannot be in the past
 - Reports: Date range start cannot be after end
 - Reports: Warning for date ranges >365 days
 - Prevents invalid date combinations
@@ -80,7 +80,7 @@ Comprehensive testing, bug fixes, and feature enhancements have been implemented
 ## Phase 3: Feature Completeness ✅
 
 ### 3.1 Invoice Upload Error Handling
-**File:** `app/deliveries/page.js` - `uploadInvoice()` function
+**File:** `app/procurement/page.js` - `uploadInvoice()` function
 
 **Enhancements:**
 - File size validation (max 10MB)
@@ -93,8 +93,8 @@ Comprehensive testing, bug fixes, and feature enhancements have been implemented
 
 ---
 
-### 3.2 Disputed Status Workflow (Deliveries)
-**File:** `app/deliveries/page.js`
+### 3.2 Disputed Status Workflow (Procurement)
+**File:** `app/procurement/page.js`
 
 **New Features:**
 - "Dispute delivery" button appears when delivery received with variances
@@ -172,7 +172,7 @@ All pages now use `Promise.allSettled()` instead of `Promise.all()` for resilien
 **Files Updated:**
 - `app/transfers/page.js`
 - `app/stocktakes/page.js`
-- `app/deliveries/page.js`
+- `app/procurement/page.js`
 - `app/users/page.js`
 - `app/quackmaster/page.js`
 
@@ -289,19 +289,19 @@ All create/update/delete operations log to `audit_logs`:
 ### Critical Fixes (Data Integrity)
 1. `app/transfers/page.js` - Transaction safety + edit capability
 2. `app/stocktakes/page.js` - Upsert safety + rejection workflow
-3. `app/deliveries/page.js` - Invoice error handling + disputed workflow
+3. `app/procurement/page.js` - Invoice error handling + disputed workflow
 4. Database migration - Quantity constraints
 
 ### Validations
 5. `app/transfers/page.js` - Pre-transfer inventory checks
-6. `app/deliveries/page.js` - Date validation
+6. `app/procurement/page.js` - Date validation
 7. `app/reports/page.js` - Date range validation
 
 ### Enhancements
 8. `app/quackmaster/page.js` - Clickable schedule
 9. `app/transfers/page.js` - Fetch safety (Promise.allSettled)
 10. `app/stocktakes/page.js` - Fetch safety (Promise.allSettled)
-11. `app/deliveries/page.js` - Fetch safety (Promise.allSettled)
+11. `app/procurement/page.js` - Fetch safety (Promise.allSettled)
 12. `app/users/page.js` - Fetch safety (Promise.allSettled)
 13. `app/quackmaster/page.js` - Fetch safety (Promise.allSettled)
 

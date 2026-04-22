@@ -34,6 +34,8 @@ export default function QuackmasterPage() {
   const [savingItem, setSavingItem] = useState(false)
   const [deletingItem, setDeletingItem] = useState(null)
 
+  const [centralKitchen, setCentralKitchen] = useState(null)
+
   useEffect(() => {
     fetchAll()
     const channel = supabase
@@ -54,11 +56,13 @@ export default function QuackmasterPage() {
           .select('*, qm_production_items(name, unit)')
           .order('logged_at', { ascending: false })
           .limit(30),
+        activeOnly(supabase, 'locations', q => q.select('*').eq('type', 'central_kitchen')),
       ])
-      const [it, st, lg] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
+      const [it, st, lg, loc] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
       if (it.data) setItems(it.data)
       if (st.data) setStock(st.data)
       if (lg.data) setLogs(lg.data)
+      if (loc.data && loc.data.length > 0) setCentralKitchen(loc.data[0])
     } catch (err) {
       console.error('fetchAll failed:', err)
     } finally {
@@ -107,26 +111,49 @@ export default function QuackmasterPage() {
     const { data: { user } } = await supabase.auth.getUser()
     const who = user?.email || 'unknown'
 
-    // upsert each row (unique on item_id)
-    const payload = entries.map(([item_id, v]) => ({
-      item_id,
-      qty: parseFloat(v),
-      updated_at: now,
-      updated_by: who,
-    }))
-    const { error } = await supabase
-      .from('qm_stock_levels')
-      .upsert(payload, { onConflict: 'item_id' })
+    try {
+      // upsert each row in qm_stock_levels (unique on item_id)
+      const payload = entries.map(([item_id, v]) => ({
+        item_id,
+        qty: parseFloat(v),
+        updated_at: now,
+        updated_by: who,
+      }))
+      const { error: qmError } = await supabase
+        .from('qm_stock_levels')
+        .upsert(payload, { onConflict: 'item_id' })
 
-    setSavingStock(false)
-    if (error) { alert('Error saving: ' + error.message); return }
-    await logAudit(supabase, {
-      table: 'qm_stock_levels', recordId: null, action: 'update', performedBy: who,
-      summary: `Updated Quackmaster stock levels for ${entries.length} item(s)`,
-      newData: Object.fromEntries(entries.map(([id, v]) => [items.find(i => i.id === id)?.name || id, parseFloat(v)])),
-    })
-    setEdits({})
-    fetchAll()
+      if (qmError) throw new Error('QM stock save failed: ' + qmError.message)
+
+      // SYNC TO CENTRAL KITCHEN INVENTORY
+      if (centralKitchen) {
+        const inventoryUpdates = entries.map(([item_id, qty]) => ({
+          location_id: centralKitchen.id,
+          item_id,
+          quantity: parseFloat(qty),
+        }))
+
+        // Upsert to inventory_levels for central kitchen
+        const { error: invError } = await supabase
+          .from('inventory_levels')
+          .upsert(inventoryUpdates, { onConflict: 'location_id,item_id' })
+
+        if (invError) throw new Error('Inventory sync failed: ' + invError.message)
+      }
+
+      await logAudit(supabase, {
+        table: 'qm_stock_levels', recordId: null, action: 'update', performedBy: who,
+        summary: `Updated Quackmaster stock levels for ${entries.length} item(s) and synced to central kitchen inventory`,
+        newData: Object.fromEntries(entries.map(([id, v]) => [items.find(i => i.id === id)?.name || id, parseFloat(v)])),
+      })
+      setEdits({})
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('saveStockTake failed:', err)
+    } finally {
+      setSavingStock(false)
+    }
   }
 
   const hasEdits = Object.values(edits).some(v => v !== '' && !isNaN(parseFloat(v)))
@@ -141,23 +168,57 @@ export default function QuackmasterPage() {
     if (isNaN(planned) || isNaN(actual)) return alert('Enter planned and actual quantities')
     setSavingLog(true)
     const { data: { user } } = await supabase.auth.getUser()
-    const { error } = await supabase.from('qm_production_logs').insert({
-      item_id: logForm.item_id,
-      planned_qty: planned,
-      actual_qty: actual,
-      note: logForm.note.trim() || null,
-      logged_by: user?.email || 'unknown',
-    })
-    setSavingLog(false)
-    if (error) { alert('Error: ' + error.message); return }
-    const itemName = items.find(i => i.id === logForm.item_id)?.name || logForm.item_id
-    await logAudit(supabase, {
-      table: 'qm_production_logs', recordId: null, action: 'create', performedBy: user?.email || 'unknown',
-      summary: `Logged production for "${itemName}": planned ${planned}, actual ${actual}`,
-      newData: { item: itemName, planned_qty: planned, actual_qty: actual, note: logForm.note || null },
-    })
-    setLogForm({ item_id: '', planned_qty: '', actual_qty: '', note: '' })
-    fetchAll()
+
+    try {
+      // Insert production log
+      const { error: logError } = await supabase.from('qm_production_logs').insert({
+        item_id: logForm.item_id,
+        planned_qty: planned,
+        actual_qty: actual,
+        note: logForm.note.trim() || null,
+        logged_by: user?.email || 'unknown',
+      })
+      if (logError) throw new Error(logError.message)
+
+      // ADD PRODUCTION TO CENTRAL KITCHEN INVENTORY
+      if (centralKitchen && actual > 0) {
+        // Get current inventory level
+        const { data: current } = await supabase
+          .from('inventory_levels')
+          .select('quantity')
+          .eq('location_id', centralKitchen.id)
+          .eq('item_id', logForm.item_id)
+          .single()
+
+        const currentQty = current?.quantity || 0
+        const newQty = currentQty + actual
+
+        // Update or create inventory record
+        const { error: invError } = await supabase
+          .from('inventory_levels')
+          .upsert({
+            location_id: centralKitchen.id,
+            item_id: logForm.item_id,
+            quantity: newQty,
+          }, { onConflict: 'location_id,item_id' })
+
+        if (invError) throw new Error('Inventory update failed: ' + invError.message)
+      }
+
+      const itemName = items.find(i => i.id === logForm.item_id)?.name || logForm.item_id
+      await logAudit(supabase, {
+        table: 'qm_production_logs', recordId: null, action: 'create', performedBy: user?.email || 'unknown',
+        summary: `Logged production for "${itemName}": planned ${planned}, actual ${actual} (added to central kitchen inventory)`,
+        newData: { item: itemName, planned_qty: planned, actual_qty: actual, note: logForm.note || null },
+      })
+      setLogForm({ item_id: '', planned_qty: '', actual_qty: '', note: '' })
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('saveLog failed:', err)
+    } finally {
+      setSavingLog(false)
+    }
   }
 
   function yieldPct(planned, actual) {
@@ -314,7 +375,7 @@ export default function QuackmasterPage() {
               <Link href="/items"      className="text-yellow-400 text-xs hover:underline">Items</Link>
               <Link href="/transfers"  className="text-yellow-400 text-xs hover:underline">Transfers</Link>
               <Link href="/stocktakes" className="text-yellow-400 text-xs hover:underline">Stock takes</Link>
-              <Link href="/deliveries" className="text-yellow-400 text-xs hover:underline">Deliveries</Link>
+              <Link href="/procurement" className="text-yellow-400 text-xs hover:underline">Procurement</Link>
               <Link href="/reports"    className="text-yellow-400 text-xs hover:underline">Reports</Link>
               <Link href="/users"      className="text-yellow-400 text-xs hover:underline">Users</Link>
             </div>

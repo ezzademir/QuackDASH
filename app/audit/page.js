@@ -20,7 +20,7 @@ const TABLE_LABEL = {
   suppliers:          'Suppliers',
   stock_transfers:    'Transfers',
   stock_takes:        'Stock Takes',
-  delivery_orders:    'Deliveries',
+  delivery_orders:    'Procurement',
   user_profiles:      'Users',
 }
 
@@ -80,7 +80,7 @@ export default function AuditPage() {
             { href: '/items',       label: 'Items' },
             { href: '/transfers',   label: 'Transfers' },
             { href: '/stocktakes',  label: 'Stock takes' },
-            { href: '/deliveries',  label: 'Deliveries' },
+            { href: '/procurement',  label: 'Procurement' },
             { href: '/quackmaster', label: 'Quackmaster' },
             { href: '/locations',   label: 'Locations' },
             { href: '/reports',     label: 'Reports' },

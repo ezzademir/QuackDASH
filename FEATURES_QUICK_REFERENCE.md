@@ -16,7 +16,7 @@
 ---
 
 ### 2. Dispute Delivery ⭐ NEW
-**Path:** /deliveries → Select delivery with variances → "Dispute delivery"
+**Path:** /procurement → Select delivery with variances → "Dispute delivery"
 
 **What:** Report delivery discrepancies with reason
 - Opens modal to describe dispute
@@ -55,7 +55,7 @@
 ---
 
 ### 5. Enhanced Invoice Upload ⭐ ENHANCED
-**Path:** /deliveries → Select delivery → "Invoice" section
+**Path:** /procurement → Select delivery → "Invoice" section
 
 **What:** Smarter file handling
 - Validates file size (max 10MB)
@@ -108,7 +108,7 @@
 ✅ Location required  
 ✅ At least one counted item before submit  
 
-### Deliveries
+### Procurement
 ✅ DO number required and unique  
 ✅ Location required  
 ✅ Expected date cannot be in the past  
@@ -180,7 +180,7 @@ Dispute Delivery (capture reason)
 | "Item not in source location" | Item doesn't exist in source | Create inventory in source |
 | "From and To cannot be the same location" | Same location selected | Choose different destination |
 
-### Deliveries
+### Procurement
 | Error | Cause | Fix |
 |-------|-------|-----|
 | "Expected date cannot be in the past" | Date before today selected | Choose today or future |
@@ -234,8 +234,8 @@ Dispute Delivery (capture reason)
 |------|------|--------|
 | Create Transfer | /transfers → + New | Fill form and create |
 | Edit Transfer | /transfers → Select → Edit | Modify and save |
-| Receive Delivery | /deliveries → Select → Enter qty | Confirm receipt |
-| Dispute Delivery | /deliveries → Select → Dispute | Enter reason |
+| Receive Delivery | /procurement → Select → Enter qty | Confirm receipt |
+| Dispute Delivery | /procurement → Select → Dispute | Enter reason |
 | Count Stock | /stocktakes → Select → Enter qty | Submit & approve |
 | Recount Stock | /stocktakes → Reject → Edit | Save after recount |
 | Set Schedule | /quackmaster → Click day | Toggle on/off |
@@ -316,7 +316,7 @@ For questions about:
 |---------|--------------|--------------|
 | Transfers | Could create errors via partial updates | Fully validated with atomic operations |
 | Stock Takes | Possible duplicate records | Uses safe upsert |
-| Deliveries | Silent upload failures | Clear error messages |
+| Procurement | Silent upload failures | Clear error messages |
 | Transfers | Immutable after creation | Can edit in requested status |
 | Delivery Variances | No dispute tracking | Full dispute workflow |
 | Database | No qty constraints | Prevents negative values |

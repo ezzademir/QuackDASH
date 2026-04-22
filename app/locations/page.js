@@ -99,7 +99,7 @@ export default function LocationsPage() {
   }
 
   async function deleteLocation(loc) {
-    if (!confirm(`Delete "${loc.name}"?\n\nThe location will be hidden but all linked data (inventory, transfers, deliveries) is preserved and visible in the audit log.`)) return
+    if (!confirm(`Delete "${loc.name}"?\n\nThe location will be hidden but all linked data (inventory, transfers, procurement) is preserved and visible in the audit log.`)) return
     setDeleting(loc.id)
     const by = await getCurrentUserEmail(supabase)
     const now = new Date().toISOString()
@@ -148,7 +148,7 @@ export default function LocationsPage() {
             { href: '/items',       label: 'Items' },
             { href: '/transfers',   label: 'Transfers' },
             { href: '/stocktakes',  label: 'Stock takes' },
-            { href: '/deliveries',  label: 'Deliveries' },
+            { href: '/procurement',  label: 'Procurement' },
             { href: '/quackmaster', label: 'Quackmaster' },
             { href: '/reports',     label: 'Reports' },
             { href: '/users',       label: 'Users' },

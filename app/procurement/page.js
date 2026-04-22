@@ -7,7 +7,7 @@ import { activeOnly } from '../../lib/db'
 import { logAudit, getCurrentUserEmail } from '../../lib/audit'
 import Link from 'next/link'
 
-export default function DeliveriesPage() {
+export default function ProcurementPage() {
   const supabase = createClient()
   const [deliveries, setDeliveries] = useState([])
   const [locations, setLocations] = useState([])
@@ -350,7 +350,7 @@ export default function DeliveriesPage() {
         <div className="flex items-center gap-3">
           <Link href="/" className="w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center text-gray-900 font-bold text-sm">Q</Link>
           <div>
-            <h1 className="font-bold text-lg leading-none">Deliveries</h1>
+            <h1 className="font-bold text-lg leading-none">Procurement</h1>
             <p className="text-gray-400 text-xs">Delivery orders &amp; invoices</p>
           </div>
         </div>
