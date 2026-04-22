@@ -80,17 +80,23 @@ export default function ReportsPage() {
   }
 
   async function fetchTransferHistory() {
-    let query = supabase
-      .from('stock_transfers')
-      .select('*, from_location:locations!stock_transfers_from_location_id_fkey(name), to_location:locations!stock_transfers_to_location_id_fkey(name)')
-      .gte('requested_at', dateFrom)
-      .lte('requested_at', dateTo + 'T23:59:59')
-      .order('requested_at', { ascending: false })
-    if (filterLocation !== 'all') {
-      query = query.or(`from_location_id.eq.${filterLocation},to_location_id.eq.${filterLocation}`)
+    try {
+      let query = supabase
+        .from('stock_transfers')
+        .select('*, from_location:locations!stock_transfers_from_location_id_fkey(name), to_location:locations!stock_transfers_to_location_id_fkey(name)')
+        .gte('requested_at', dateFrom)
+        .lte('requested_at', dateTo + 'T23:59:59')
+        .order('requested_at', { ascending: false })
+      if (filterLocation !== 'all') {
+        query = query.or(`from_location_id.eq.${filterLocation},to_location_id.eq.${filterLocation}`)
+      }
+      const { data, error } = await query
+      if (error) throw new Error(error.message)
+      setData(data || [])
+    } catch (err) {
+      console.error('fetchTransferHistory failed:', err)
+      setData([])
     }
-    const { data } = await query
-    setData(data || [])
   }
 
   async function fetchVariance() {
@@ -155,46 +161,51 @@ export default function ReportsPage() {
   }
 
   async function fetchOutletStatus() {
-    const build = (withDeleted) => {
-      const sel = withDeleted
-        ? '*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)'
-        : '*, items!inner(name, reorder_level, is_active, categories(name), units(abbreviation)), locations(name)'
-      let q = supabase.from('inventory_levels').select(sel).eq('items.is_active', true)
-      if (withDeleted) q = q.is('items.deleted_at', null)
-      return q
-    }
-    let res = await build(true)
-    if (res.error) res = await build(false)
+    try {
+      const build = (withDeleted) => {
+        const sel = withDeleted
+          ? '*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name, type)'
+          : '*, items!inner(name, reorder_level, is_active, categories(name), units(abbreviation)), locations(name, type)'
+        let q = supabase.from('inventory_levels').select(sel).eq('items.is_active', true)
+        if (withDeleted) q = q.is('items.deleted_at', null)
+        return q
+      }
+      let res = await build(true)
+      if (res.error) res = await build(false)
 
-    const allInv = res.data || []
-    const outletMap = {}
+      const allInv = res.data || []
+      const outletMap = {}
 
-    for (const inv of allInv) {
-      const locId = inv.location_id
-      const locName = inv.locations?.name || 'Unknown'
-      const locType = inv.locations?.type || 'outlet'
+      for (const inv of allInv) {
+        const locId = inv.location_id
+        const locName = inv.locations?.name || 'Unknown'
+        const locType = inv.locations?.type || 'outlet'
 
-      if (!outletMap[locId]) {
-        outletMap[locId] = {
-          id: locId,
-          name: locName,
-          type: locType,
-          totalItems: 0,
-          lowStockCount: 0,
-          totalQuantity: 0,
+        if (!outletMap[locId]) {
+          outletMap[locId] = {
+            id: locId,
+            name: locName,
+            type: locType,
+            totalItems: 0,
+            lowStockCount: 0,
+            totalQuantity: 0,
+          }
+        }
+
+        outletMap[locId].totalItems += 1
+        outletMap[locId].totalQuantity += inv.quantity || 0
+
+        if (inv.quantity <= (inv.items?.reorder_level || 0)) {
+          outletMap[locId].lowStockCount += 1
         }
       }
 
-      outletMap[locId].totalItems += 1
-      outletMap[locId].totalQuantity += inv.quantity || 0
-
-      if (inv.quantity <= (inv.items?.reorder_level || 0)) {
-        outletMap[locId].lowStockCount += 1
-      }
+      const outlets = Object.values(outletMap).sort((a, b) => a.name.localeCompare(b.name))
+      setData(outlets)
+    } catch (err) {
+      console.error('fetchOutletStatus failed:', err)
+      setData([])
     }
-
-    const outlets = Object.values(outletMap).sort((a, b) => a.name.localeCompare(b.name))
-    setData(outlets)
   }
 
   function exportCSV() {
@@ -368,7 +379,7 @@ export default function ReportsPage() {
                 {activeReport === 'low_stock' && 'items below reorder level'}
                 {activeReport === 'transfer_history' && 'transfers'}
                 {activeReport === 'variance' && 'variance lines'}
-                {activeReport === 'delivery' && 'delivery orders'}
+                {activeReport === 'procurement' && 'delivery orders'}
               </p>
             </div>
           </div>
