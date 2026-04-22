@@ -219,7 +219,7 @@ The dashboard (`app/page.js`) is the only page with the full nav + user profile 
 | `/locations` | Location CRUD | Create/edit locations (central kitchen or outlet), toggle `is_active` (deactivate/reactivate), soft-delete |
 | `/transfers` | Stock transfers | Request/approve/send transfers between locations, track with line items |
 | `/stocktakes` | Physical inventory counts | Start stock take, count items vs. system qty, record variances |
-| `/deliveries` | Inbound PO tracking | Create delivery orders, receive items, record variances |
+| `/procurement` | Inbound PO tracking | Create delivery orders, receive items, record variances |
 | `/users` | User management | Create/edit users, assign roles, toggle active status |
 | `/quackmaster` | Admin panel | Manage categories, units, suppliers, production items |
 | `/reports` | Analytics | Low-stock alerts, reorder recommendations, stock value by location |

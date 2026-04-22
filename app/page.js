@@ -156,7 +156,7 @@ export default function Dashboard() {
             { href: '/items',       label: 'Items' },
             { href: '/transfers',   label: 'Transfers' },
             { href: '/stocktakes',  label: 'Stock takes' },
-            { href: '/deliveries',  label: 'Deliveries' },
+            { href: '/procurement',  label: 'Procurement' },
             { href: '/quackmaster', label: 'Quackmaster' },
             { href: '/locations',   label: 'Locations' },
             { href: '/reports',     label: 'Reports' },

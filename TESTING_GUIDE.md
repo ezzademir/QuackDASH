@@ -93,7 +93,7 @@
 **Objective:** Verify delivery receipt, variance detection, and dispute workflow
 
 **Steps:**
-1. Go to /deliveries → "+ New DO"
+1. Go to /procurement → "+ New DO"
 2. Fill form, add line items with expected quantities
 3. Click "Create DO"
 4. Click delivery → Record received quantities
@@ -118,7 +118,7 @@
 **Objective:** Verify invoice upload with error handling
 
 **Steps:**
-1. Go to /deliveries, select a delivery
+1. Go to /procurement, select a delivery
 2. Click file input
 3. **Test invalid file**: Try uploading a non-image file
    - **EXPECT**: Error "Invalid file type. Accepted formats: JPEG, PNG, WebP, PDF"
@@ -227,9 +227,9 @@
 - [ ] /transfers: Items dropdown shows all active items with units
 - [ ] /stocktakes: Locations dropdown shows all active locations
 - [ ] /stocktakes: Items populated when stock take starts
-- [ ] /deliveries: Locations dropdown shows all active locations
-- [ ] /deliveries: Suppliers dropdown shows all active suppliers
-- [ ] /deliveries: Items dropdown shows all active items
+- [ ] /procurement: Locations dropdown shows all active locations
+- [ ] /procurement: Suppliers dropdown shows all active suppliers
+- [ ] /procurement: Items dropdown shows all active items
 - [ ] /users: Locations dropdown shows all active locations
 - [ ] /items: Categories dropdown shows all categories
 - [ ] /items: Units dropdown shows all units
@@ -244,7 +244,7 @@
 **Objective:** Verify pages work even if one query fails
 
 **Steps:**
-1. Go to a complex page like /deliveries
+1. Go to a complex page like /procurement
 2. Open browser DevTools → Network tab
 3. Set Network to "Offline"
 4. Refresh page
@@ -280,7 +280,7 @@
 **Objective:** Verify date validation prevents errors
 
 **Steps:**
-1. Go to /deliveries → Create DO
+1. Go to /procurement → Create DO
 2. Try setting expected_date to a past date
 3. **EXPECT**: Error "Expected date cannot be in the past"
 4. Go to /reports

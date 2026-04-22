@@ -34,7 +34,7 @@ export default function ReportsPage() {
 
     try {
       // Validate date range for date-dependent reports
-      if (['transfer_history', 'variance', 'delivery'].includes(activeReport)) {
+      if (['transfer_history', 'variance', 'procurement'].includes(activeReport)) {
         if (dateFrom && dateTo) {
           const from = new Date(dateFrom)
           const to = new Date(dateTo)
@@ -52,7 +52,7 @@ export default function ReportsPage() {
       if (activeReport === 'stock_value') await fetchStockValue()
       if (activeReport === 'transfer_history') await fetchTransferHistory()
       if (activeReport === 'variance') await fetchVariance()
-      if (activeReport === 'delivery') await fetchDelivery()
+      if (activeReport === 'procurement') await fetchProcurement()
       if (activeReport === 'low_stock') await fetchLowStock()
       if (activeReport === 'outlet_status') await fetchOutletStatus()
     } catch (err) {
@@ -125,7 +125,7 @@ export default function ReportsPage() {
     setData(rows)
   }
 
-  async function fetchDelivery() {
+  async function fetchProcurement() {
     let query = supabase
       .from('delivery_orders')
       .select('*, locations(name), suppliers(name), do_line_items(*, items(name, units(abbreviation)))')
@@ -229,7 +229,7 @@ export default function ReportsPage() {
         d.location, d.item_name, d.system_qty, d.counted_qty, d.variance_qty, d.unit
       ])
     }
-    if (activeReport === 'delivery') {
+    if (activeReport === 'procurement') {
       csv = 'DO Number,Location,Supplier,Status,Date\n'
       rows = data.map(d => [
         d.do_number, d.locations?.name, d.suppliers?.name,
@@ -261,7 +261,7 @@ export default function ReportsPage() {
     { id: 'low_stock',         label: 'Low stock',         icon: '🔴' },
     { id: 'transfer_history',  label: 'Transfer history',  icon: '🚚' },
     { id: 'variance',          label: 'Variance report',   icon: '⚠️' },
-    { id: 'delivery',          label: 'Delivery & supplier', icon: '🛒' },
+    { id: 'procurement',       label: 'Procurement & supplier', icon: '🛒' },
   ]
 
   const statusColor = {
@@ -275,7 +275,7 @@ export default function ReportsPage() {
     cancelled:  'bg-gray-100 text-gray-600',
   }
 
-  const showDateFilter = ['transfer_history', 'variance', 'delivery'].includes(activeReport)
+  const showDateFilter = ['transfer_history', 'variance', 'procurement'].includes(activeReport)
   const showLocationFilter = activeReport !== 'outlet_status'
 
   return (

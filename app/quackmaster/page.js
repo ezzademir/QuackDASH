@@ -314,7 +314,7 @@ export default function QuackmasterPage() {
               <Link href="/items"      className="text-yellow-400 text-xs hover:underline">Items</Link>
               <Link href="/transfers"  className="text-yellow-400 text-xs hover:underline">Transfers</Link>
               <Link href="/stocktakes" className="text-yellow-400 text-xs hover:underline">Stock takes</Link>
-              <Link href="/deliveries" className="text-yellow-400 text-xs hover:underline">Deliveries</Link>
+              <Link href="/procurement" className="text-yellow-400 text-xs hover:underline">Procurement</Link>
               <Link href="/reports"    className="text-yellow-400 text-xs hover:underline">Reports</Link>
               <Link href="/users"      className="text-yellow-400 text-xs hover:underline">Users</Link>
             </div>
