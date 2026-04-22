@@ -6,17 +6,17 @@ import Link from 'next/link'
 
 export default function ItemsPage() {
   const supabase = createClient()
-  const [items, setItems] = useState([])
-  const [categories, setCategories] = useState([])
-  const [units, setUnits] = useState([])
+  const [items, setItems] = useState<any[]>([])
+  const [categories, setCategories] = useState<any[]>([])
+  const [units, setUnits] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [editItem, setEditItem] = useState(null)
+  const [editItem, setEditItem] = useState<any>(null)
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('all')
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    name: '', sku: '', category_id: '', unit_id: '', reorder_level: 0
+    name: '', sku: '', category_id: '', unit_id: '', reorder_level: '0'
   })
 
   useEffect(() => { fetchAll() }, [])
@@ -36,45 +36,56 @@ export default function ItemsPage() {
 
   function openNew() {
     setEditItem(null)
-    setForm({ name: '', sku: '', category_id: '', unit_id: '', reorder_level: 0 })
+    setForm({ name: '', sku: '', category_id: '', unit_id: '', reorder_level: '0' })
     setShowForm(true)
   }
 
-  function openEdit(item) {
+  function openEdit(item: any) {
     setEditItem(item)
     setForm({
       name: item.name,
       sku: item.sku || '',
       category_id: item.category_id || '',
       unit_id: item.unit_id || '',
-      reorder_level: item.reorder_level || 0,
+      reorder_level: String(item.reorder_level || '0'),
     })
     setShowForm(true)
   }
 
   async function saveItem() {
-    if (!form.name.trim()) return alert('Item name is required')
-    setSaving(true)
-    const payload = {
-      name: form.name.trim(),
-      sku: form.sku.trim() || null,
-      category_id: form.category_id || null,
-      unit_id: form.unit_id || null,
-      reorder_level: parseFloat(form.reorder_level) || 0,
+    try {
+      if (!form.name.trim()) return alert('Item name is required')
+      setSaving(true)
+      const payload: any = {
+        name: form.name.trim(),
+        sku: form.sku.trim() || null,
+        category_id: form.category_id || null,
+        unit_id: form.unit_id || null,
+        reorder_level: Number(form.reorder_level) || 0,
+      }
+      if (editItem) {
+        await supabase.from('items').update(payload).eq('id', editItem.id)
+      } else {
+        await supabase.from('items').insert(payload)
+      }
+      setShowForm(false)
+      fetchAll()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+      console.error('saveItem failed:', err)
+    } finally {
+      setSaving(false)
     }
-    if (editItem) {
-      await supabase.from('items').update(payload).eq('id', editItem.id)
-    } else {
-      await supabase.from('items').insert(payload)
-    }
-    setSaving(false)
-    setShowForm(false)
-    fetchAll()
   }
 
-  async function toggleActive(item) {
-    await supabase.from('items').update({ is_active: !item.is_active }).eq('id', item.id)
-    fetchAll()
+  async function toggleActive(item: any) {
+    try {
+      await supabase.from('items').update({ is_active: !item.is_active }).eq('id', item.id)
+      fetchAll()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+      console.error('toggleActive failed:', err)
+    }
   }
 
   const filtered = items.filter(i => {

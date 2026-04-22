@@ -122,11 +122,17 @@ export default function DeliveriesPage() {
         newData: { do_number: form.do_number, location: locName, supplier: supName, items: validLines.length },
       })
 
-    setSaving(false)
-    setShowForm(false)
-    setForm({ do_number: '', location_id: '', supplier_id: '', expected_date: '', notes: '' })
-    setLineItems([{ item_id: '', expected_qty: '', unit_price: '' }])
-    fetchAll()
+      setSaving(false)
+      setShowForm(false)
+      setForm({ do_number: '', location_id: '', supplier_id: '', expected_date: '', notes: '' })
+      setLineItems([{ item_id: '', expected_qty: '', unit_price: '' }])
+      fetchAll()
+    } catch (err) {
+      alert('Error: ' + err.message)
+      console.error('createDO failed:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function receiveItem(lineId, value) {
