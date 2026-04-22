@@ -14,6 +14,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [activeLocation, setActiveLocation] = useState('all')
   const [userProfile, setUserProfile] = useState(null)
+  const [qmStock, setQmStock] = useState([])
+  const [qmItems, setQmItems] = useState([])
 
   useEffect(() => {
     fetchAll()
@@ -47,14 +49,18 @@ export default function Dashboard() {
           .in('status', ['requested', 'approved', 'in_transit'])
           .order('requested_at', { ascending: false })
           .limit(5),
+        supabase.from('qm_stock_levels').select('*'),
+        activeOnly(supabase, 'qm_production_items', q => q.select('*')),
       ])
 
-      const [loc, itm, trx] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
+      const [loc, itm, trx, qmStk, qmItm] = results.map(r => r.status === 'fulfilled' ? r.value : { data: [] })
 
       if (loc.data) setLocations(loc.data)
       if (inv.data) setInventory(inv.data)
       if (itm.data) setItems(itm.data)
       if (trx.data) setTransfers(trx.data)
+      if (qmStk.data) setQmStock(qmStk.data)
+      if (qmItm.data) setQmItems(qmItm.data)
     } catch (err) {
       console.error('Dashboard fetchAll failed:', err)
     } finally {
@@ -67,6 +73,8 @@ export default function Dashboard() {
       .channel('inventory-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_levels' }, () => fetchAll())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_transfers' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'qm_stock_levels' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'qm_production_logs' }, () => fetchAll())
       .subscribe()
     return () => supabase.removeChannel(channel)
   }
@@ -86,7 +94,9 @@ export default function Dashboard() {
     i.quantity <= (i.items?.reorder_level || 0) && i.quantity >= 0
   )
 
-  const totalValue = inventory.reduce((sum, i) => sum + (i.quantity || 0), 0)
+  // Calculate total inventory including Quackmaster stock
+  const totalQmValue = qmStock.reduce((sum, s) => sum + (s.qty || 0), 0)
+  const totalValue = inventory.reduce((sum, i) => sum + (i.quantity || 0), 0) + totalQmValue
 
   const statusColor = {
     requested:  'bg-amber-100 text-amber-800',
