@@ -23,11 +23,17 @@ export async function proxy(request) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user && !request.nextUrl.pathname.startsWith('/login')) {
+  const p = request.nextUrl.pathname
+  const isPublic =
+    p === '/login' ||
+    p === '/set-password' ||
+    p.startsWith('/set-password/')
+
+  if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  if (user && p === '/login') {
     return NextResponse.redirect(new URL('/', request.url))
   }
 

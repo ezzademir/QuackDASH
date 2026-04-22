@@ -22,6 +22,7 @@ export default function LoginPage() {
       setError(error.message)
       setLoading(false)
     } else {
+      await fetch('/api/ensure-profile', { method: 'POST', credentials: 'same-origin' })
       router.push('/')
       router.refresh()
     }
