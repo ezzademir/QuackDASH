@@ -54,6 +54,7 @@ export default function ReportsPage() {
       if (activeReport === 'variance') await fetchVariance()
       if (activeReport === 'delivery') await fetchDelivery()
       if (activeReport === 'low_stock') await fetchLowStock()
+      if (activeReport === 'outlet_status') await fetchOutletStatus()
     } catch (err) {
       console.error('fetchReport failed:', err)
       setData([])
@@ -153,11 +154,60 @@ export default function ReportsPage() {
     setData(low)
   }
 
+  async function fetchOutletStatus() {
+    const build = (withDeleted) => {
+      const sel = withDeleted
+        ? '*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)'
+        : '*, items!inner(name, reorder_level, is_active, categories(name), units(abbreviation)), locations(name)'
+      let q = supabase.from('inventory_levels').select(sel).eq('items.is_active', true)
+      if (withDeleted) q = q.is('items.deleted_at', null)
+      return q
+    }
+    let res = await build(true)
+    if (res.error) res = await build(false)
+
+    const allInv = res.data || []
+    const outletMap = {}
+
+    for (const inv of allInv) {
+      const locId = inv.location_id
+      const locName = inv.locations?.name || 'Unknown'
+      const locType = inv.locations?.type || 'outlet'
+
+      if (!outletMap[locId]) {
+        outletMap[locId] = {
+          id: locId,
+          name: locName,
+          type: locType,
+          totalItems: 0,
+          lowStockCount: 0,
+          totalQuantity: 0,
+        }
+      }
+
+      outletMap[locId].totalItems += 1
+      outletMap[locId].totalQuantity += inv.quantity || 0
+
+      if (inv.quantity <= (inv.items?.reorder_level || 0)) {
+        outletMap[locId].lowStockCount += 1
+      }
+    }
+
+    const outlets = Object.values(outletMap).sort((a, b) => a.name.localeCompare(b.name))
+    setData(outlets)
+  }
+
   function exportCSV() {
     if (data.length === 0) return alert('No data to export')
     let csv = ''
     let rows = []
 
+    if (activeReport === 'outlet_status') {
+      csv = 'Outlet,Type,Total Items,Low Stock,Total Quantity\n'
+      rows = data.map(d => [
+        d.name, d.type.replace('_', ' '), d.totalItems, d.lowStockCount, d.totalQuantity
+      ])
+    }
     if (activeReport === 'stock_value') {
       csv = 'Location,Item,Category,Quantity,Unit,Reorder Level\n'
       rows = data.map(d => [
@@ -206,6 +256,7 @@ export default function ReportsPage() {
   }
 
   const reports = [
+    { id: 'outlet_status',     label: 'Outlet status',     icon: '🏪' },
     { id: 'stock_value',       label: 'Stock value',       icon: '📦' },
     { id: 'low_stock',         label: 'Low stock',         icon: '🔴' },
     { id: 'transfer_history',  label: 'Transfer history',  icon: '🚚' },
@@ -225,6 +276,7 @@ export default function ReportsPage() {
   }
 
   const showDateFilter = ['transfer_history', 'variance', 'delivery'].includes(activeReport)
+  const showLocationFilter = activeReport !== 'outlet_status'
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -269,17 +321,19 @@ export default function ReportsPage() {
             {/* Filters */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filters</p>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Location</label>
-                <select
-                  value={filterLocation}
-                  onChange={e => setFilterLocation(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                >
-                  <option value="all">All locations</option>
-                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-              </div>
+              {showLocationFilter && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Location</label>
+                  <select
+                    value={filterLocation}
+                    onChange={e => setFilterLocation(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                  >
+                    <option value="all">All locations</option>
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+              )}
               {showDateFilter && (
                 <>
                   <div>
@@ -309,6 +363,7 @@ export default function ReportsPage() {
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Summary</p>
               <p className="text-2xl font-bold text-gray-900">{data.length}</p>
               <p className="text-xs text-gray-500">
+                {activeReport === 'outlet_status' && 'outlets'}
                 {activeReport === 'stock_value' && 'inventory lines'}
                 {activeReport === 'low_stock' && 'items below reorder level'}
                 {activeReport === 'transfer_history' && 'transfers'}
@@ -344,6 +399,43 @@ export default function ReportsPage() {
             ) : (
 
               <div className="overflow-x-auto">
+
+                {/* Outlet status grid */}
+                {activeReport === 'outlet_status' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5">
+                    {data.map(outlet => (
+                      <div key={outlet.id} className="border border-gray-100 rounded-lg p-4 hover:shadow-sm transition-shadow">
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <h3 className="text-sm font-bold text-gray-900">{outlet.name}</h3>
+                            <p className="text-xs text-gray-500 capitalize mt-0.5">{outlet.type.replace('_', ' ')}</p>
+                          </div>
+                          {outlet.lowStockCount > 0 && (
+                            <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded-full">
+                              {outlet.lowStockCount} low
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-gray-50 rounded p-2">
+                            <p className="text-xs text-gray-500">Items</p>
+                            <p className="text-lg font-bold text-gray-900">{outlet.totalItems}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded p-2">
+                            <p className="text-xs text-gray-500">Qty</p>
+                            <p className="text-lg font-bold text-gray-900">{outlet.totalQuantity}</p>
+                          </div>
+                          <div className={`rounded p-2 ${outlet.lowStockCount > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                            <p className="text-xs text-gray-500">Low</p>
+                            <p className={`text-lg font-bold ${outlet.lowStockCount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                              {outlet.lowStockCount}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Stock value table */}
                 {activeReport === 'stock_value' && (
