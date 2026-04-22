@@ -133,10 +133,10 @@ There are no shared layout components, providers, or context. Headers, modals, a
 **Procurement:**
 - `suppliers` → contact info
 
-**Quackmaster (production module — separate concern):**
-- `qm_production_items` → name, type, unit, max_qty, schedule_days (array), schedule_label
-- `qm_stock_levels` → one row per production item
-- `qm_production_logs` → planned vs actual production with yield %
+**Quackmaster (production module — integrated with inventory):**
+- `qm_production_items` → name, type, unit, max_qty, schedule_days (array), schedule_label, **item_id** (FK to items)
+- `qm_stock_levels` → one row per production item; syncs to central_kitchen `inventory_levels`
+- `qm_production_logs` → planned vs actual production with yield %; actual qty automatically added to central kitchen inventory
 
 **Users & audit:**
 - `user_profiles` → mirrors `auth.users.id` as PK; adds `full_name`, `role` (admin | central_kitchen | outlet_manager | outlet_staff | procurement), `location_id`
@@ -205,6 +205,38 @@ function subscribeToInventory() {
 }
 ```
 Unsubscribe in cleanup: `useEffect(() => { subscribeToInventory() }, [])` returns the cleanup function.
+
+### Quackmaster Integration (Production → Inventory Flow)
+
+**Problem Solved:** Quackmaster production was siloed in `qm_stock_levels` and invisible to the main inventory system. Now production flows into central kitchen's `inventory_levels`.
+
+**How it works:**
+1. **Link**: `qm_production_items.item_id` FK → `items.id` (matches production items to inventory items)
+2. **Stock Take Sync** (manual adjustment):
+   - When `saveStockTake()` updates `qm_stock_levels` quantities
+   - Automatically syncs to central_kitchen's `inventory_levels` with same qty
+3. **Production Log Sync** (incremental):
+   - When `saveLog()` logs production (actual_qty)
+   - Adds actual_qty to central_kitchen's `inventory_levels` for that item
+4. **Dashboard Visibility**:
+   - Fetches both `inventory_levels` and `qm_stock_levels`
+   - Includes QM stock in total inventory value
+   - Subscribes to `qm_production_logs` and `qm_stock_levels` changes for realtime updates
+
+**Data Flow Example:**
+```
+User sets Quackmaster stock: Duck Broth 100kg
+  ↓
+saveStockTake() updates qm_stock_levels.qty = 100
+  ↓
+Automatically syncs to inventory_levels (central_kitchen, duck_broth) = 100
+  ↓
+Dashboard shows total inventory includes 100kg duck broth
+  ↓
+User can transfer duck broth to outlets via /transfers
+```
+
+**Error Handling:** All sync operations wrapped in try/catch. If sync fails, user sees error message and QM stock is NOT saved to prevent data inconsistency.
 
 ### Navigation
 
