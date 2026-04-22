@@ -157,8 +157,8 @@ export default function ReportsPage() {
   async function fetchOutletStatus() {
     const build = (withDeleted) => {
       const sel = withDeleted
-        ? '*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name)'
-        : '*, items!inner(name, reorder_level, is_active, categories(name), units(abbreviation)), locations(name)'
+        ? '*, items!inner(name, reorder_level, is_active, deleted_at, categories(name), units(abbreviation)), locations(name, type)'
+        : '*, items!inner(name, reorder_level, is_active, categories(name), units(abbreviation)), locations(name, type)'
       let q = supabase.from('inventory_levels').select(sel).eq('items.is_active', true)
       if (withDeleted) q = q.is('items.deleted_at', null)
       return q
